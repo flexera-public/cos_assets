@@ -58,6 +58,7 @@ In Example 1, user will be prompted for Azure credentials during script executio
 
 ##### Example 2
 $mycred = Get-Credential
+
 .\AzureUtilization.ps1 -companyName "Kramerica" -csvPath "C:\Users\Kramer\Documents\myazureaccounts.csv" -azureUsername $mycred.UserName -azurePassword $mycred.Password -retrieveMetrics
 
 In Example 2, user will be prompted for credentials prior to executing the AzureUtilization script.
@@ -68,6 +69,7 @@ In Example 2, user will be prompted for credentials prior to executing the Azure
 
 ##### Example 1
 $mycred = Get-Credential
+
 .\AzureUtilization.ps1 -companyName "Kramerica" -subscriptionId "12345678-1234-1234-1234-123456789012" -resourceGroupName "MyResourceGroup" -createStorageAccount $true -azureUsername $mycred.UserName -azurePassword $mycred.Password -location eastus -retrieveMetrics
 
 ## Outputs
