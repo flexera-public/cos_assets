@@ -11,6 +11,11 @@ The purpose of this script is to complete the following tasks.  They can be exec
 ## Getting Started
 There are 2 main ways to execute the script: using in-line parameters & using a CSV input.  The CSV is the recommended method, as it allows support for multiple subscriptions.
 
+### Pre-Reqs
+- Windows Instance
+- PowerShell v5.0 or higher
+- AzureRM PowerShell Module
+
 ## Usage
 ### Parameters
 The Parameters listed below have the same purpose, regardless of execution method.
@@ -87,5 +92,6 @@ All outputs will appear in the working directory.
 
 
 ## Limitations
+- Azure Classic is not supported
 - VM must be running to install the Diagnostics Extension 
 - VM must be rebooted after Diagnostics Extension is installed and before Metrics are retrieved
