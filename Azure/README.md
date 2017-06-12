@@ -1,7 +1,7 @@
 # Azure Utilization Script
 
 ## Overview
-The purpose of this script is to complete the following tasks.  They can be executed at the same time or separately (see [Usage](.\README.md#Usage) for more info):
+The purpose of this script is to complete the following tasks.  They can be executed at the same time or separately (see **Usage** for more info):
 - Generate list of VMs that do not have the Diagnostics Extension installed
     - IaaSDiagnostics for Windows VMs
     - LinuxDiagnostic for Linux VMs
