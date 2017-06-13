@@ -75,25 +75,119 @@ All examples below assume that the `AzureUtilization.ps1` script is in the worki
 
 #### CSV Input
 ##### Example 1
+```
 .\AzureUtilization.ps1 -companyName "Kramerica" -csvPath "C:\Users\Kramer\Documents\myazureaccounts.csv" -checkForExtensions -installExtensions
-
+```
 In Example 1, user will be prompted for Azure credentials during script execution. 
 
 ##### Example 2
+```
 $mycred = Get-Credential
 
-.\AzureUtilization.ps1 -companyName "Kramerica" -csvPath "C:\Users\Kramer\Documents\myazureaccounts.csv" -azureUsername $mycred.UserName -azurePassword $mycred.Password -retrieveMetrics
-
+.\AzureUtilization.ps1 -companyName "Kramerica" -csvPath "C:\Users\Kramer\Documents\myazureaccounts.csv" -azureUsername $mycred.UserName -azurePassword $mycred.Password -installExtensions
+```
 In Example 2, user will be prompted for credentials prior to executing the AzureUtilization script.
 
 #### In-line Parameters
 ##### Example 1
-.\AzureUtilization.ps1 -companyName "Kramerica" -subscriptionId "12345678-1234-1234-1234-123456789012" -resourceGroupName "MyResourceGroup" -storageAccountName "sa12345foobar" -location eastus -checkForExtensions -installExtensions
+```
+.\AzureUtilization.ps1 -companyName "Kramerica" -subscriptionId "12345678-1234-1234-1234-123456789012" -resourceGroupName "MyResourceGroup" -storageAccountName "sa12345foobar" -location eastus -checkForExtensions
+```
 
+##### Example 2 
+```
+.\AzureUtilization.ps1 -companyName "Kramerica" -subscriptionId "12345678-1234-1234-1234-123456789012" -resourceGroupName "MyResourceGroup" -storageAccountName "sa12345foobar" -location eastus -installExtensions
+```
+
+#### Retrieve Metrics Examples
 ##### Example 1
+```
 $mycred = Get-Credential
 
-.\AzureUtilization.ps1 -companyName "Kramerica" -subscriptionId "12345678-1234-1234-1234-123456789012" -resourceGroupName "MyResourceGroup" -createStorageAccount $true -azureUsername $mycred.UserName -azurePassword $mycred.Password -location eastus -retrieveMetrics
+.\AzureUtilization.ps1 -companyName "Kramerica" -subscriptionId "12345678-1234-1234-1234-123456789012" -azureUsername $mycred.UserName -azurePassword $mycred.Password -retrieveMetrics
+```
+
+##### Example 2
+```
+.\AzureUtilization.ps1 -companyName "Kramerica" -retrieveMetrics
+```
+
+##### Example 3
+```
+.\AzureUtilization.ps1 -companyName "Kramerica" -retrieveMetrics -customMetricNames "\NetworkInterface\PacketsTransmitted","\NetworkInterface\PacketsReceived"
+```
+
+## Install Extension - Additional Notes
+Metrics installed using the Default XML config in this script:
+
+- **Windows:**
+- \Processor(_Total)\% Processor Time,
+- \Processor(_Total)\% Privileged Time,
+- \Processor(_Total)\% User Time,
+- \Processor Information(_Total)\Processor Frequency,
+- \System\Processes,
+- \Process(_Total)\Thread Count,
+- \Process(_Total)\Handle Count,
+- \Memory\% Committed Bytes In Use,
+- \Memory\Available Bytes,
+- \Memory\Committed Bytes,
+- \Memory\Commit Limit,
+- \Memory\Pool Paged Bytes,
+- \Memory\Pool Nonpaged Bytes,
+- \PhysicalDisk(_Total)\% Disk Time,
+- \PhysicalDisk(_Total)\% Disk Read Time,
+- \PhysicalDisk(_Total)\% Disk Write Time,
+- \PhysicalDisk(_Total)\Disk Transfers/sec,
+- \PhysicalDisk(_Total)\Disk Reads/sec,
+- \PhysicalDisk(_Total)\Disk Writes/sec,
+- \PhysicalDisk(_Total)\Disk Bytes/sec,
+- \PhysicalDisk(_Total)\Disk Read Bytes/sec,
+- \PhysicalDisk(_Total)\Disk Write Bytes/sec,
+- \PhysicalDisk(_Total)\Avg. Disk Queue Length,
+- \PhysicalDisk(_Total)\Avg. Disk Read Queue Length,
+- \PhysicalDisk(_Total)\Avg. Disk Write Queue Length,
+- \LogicalDisk(_Total)\% Free Space,
+- \LogicalDisk(_Total)\Free Megabytes
+
+- **Linux:**
+- \Memory\AvailableMemory,
+- \Memory\PercentAvailableMemory,
+- \Memory\UsedMemory,
+- \Memory\PercentUsedMemory,
+- \Memory\PercentUsedByCache,
+- \Memory\PagesPerSec,
+- \Memory\PagesReadPerSec,
+- \Memory\PagesWrittenPerSec,
+- \Memory\AvailableSwap,
+- \Memory\PercentAvailableSwap,
+- \Memory\UsedSwap,
+- \Memory\PercentUsedSwap,
+- \Processor\PercentIdleTime,
+- \Processor\PercentUserTime,
+- \Processor\PercentNiceTime,
+- \Processor\PercentPrivilegedTime,
+- \Processor\PercentInterruptTime,
+- \Processor\PercentDPCTime,
+- \Processor\PercentProcessorTime,
+- \Processor\PercentIOWaitTime,
+- \PhysicalDisk\BytesPerSecond,
+- \PhysicalDisk\ReadBytesPerSecond,
+- \PhysicalDisk\WriteBytesPerSecond,
+- \PhysicalDisk\TransfersPerSecond,
+- \PhysicalDisk\ReadsPerSecond,
+- \PhysicalDisk\WritesPerSecond,
+- \PhysicalDisk\AverageReadTime,
+- \PhysicalDisk\AverageWriteTime,
+- \PhysicalDisk\AverageTransferTime,
+- \PhysicalDisk\AverageDiskQueueLength,
+- \NetworkInterface\BytesTransmitted,
+- \NetworkInterface\BytesReceived,
+- \NetworkInterface\PacketsTransmitted,
+- \NetworkInterface\PacketsReceived,
+- \NetworkInterface\BytesTotal,
+- \NetworkInterface\TotalRxErrors,
+- \NetworkInterface\TotalTxErrors,
+- \NetworkInterface\TotalCollisions
 
 ## Retrieve Metrics - Additional Notes
 - In the event that you would like to target specific Subscriptions to retrieve VM Metrics, you may use the `-subscriptionId` or `-csvPath` parameters.  If you would like to retrieve VM Metrics across all Subscriptions (that the user account has access to), you can execute `-retrieveMetrics` without either of these additional parameters.
@@ -101,7 +195,7 @@ $mycred = Get-Credential
 - If a VM does not have the Diagnostics Extension installed, the Metric fields will have a value of: `Ext Not Installed`
 - If a VM has the Diagnostics Extension installed, but does not return a value for the target metric, the Metric field will have a value of: `N/A`
 
-### Default Metrics
+### Default Metrics Gathered
 The following are the Default Metrics that will attempt to be gathered when executing the script with `-retrieveMetrics`:
 
 - **Windows:**
