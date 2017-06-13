@@ -14,35 +14,41 @@ param(
     $azurePassword,
 
     [Parameter(Mandatory=$True, ParameterSetName="CSV")]
+    [Parameter(Mandatory=$False, ParameterSetName="Retrieve")]
     [string]
     $csvPath,
     
     [Parameter(Mandatory=$True, ParameterSetName="InLine")]
+    [Parameter(Mandatory=$False, ParameterSetName="Retrieve")]
     [string]
     $subscriptionId,
 
     [Parameter(Mandatory=$False, ParameterSetName="InLine")]
+    [Parameter(Mandatory=$False, ParameterSetName="Retrieve")]
     [string]
     $storageAccountName,
 
     [Parameter(Mandatory=$False, ParameterSetName="InLine")]
+    [Parameter(Mandatory=$False, ParameterSetName="Retrieve")]
     [boolean]
     $createStorageAccount = $false,
 
     [Parameter(Mandatory=$False, ParameterSetName="InLine")]
+    [Parameter(Mandatory=$False, ParameterSetName="Retrieve")]
     [string]
     $resourceGroupName = "RSDiagnostics",
 
     [Parameter(Mandatory=$False, ParameterSetName="InLine")]
+    [Parameter(Mandatory=$False, ParameterSetName="Retrieve")]
     [ValidateSet('eastasia','southeastasia','centralus','eastus','eastus2','westus','northcentralus','southcentralus','northeurope','westeurope','japanwest','japaneast','brazilsouth','australiaeast','australiasoutheast','southindia','centralindia','westindia','canadacentral','canadaeast','uksouth','ukwest','westcentralus','westus2','koreacentral','koreasouth')]
     [string]
     $location,
 
-    [Parameter(Mandatory=$False)]
+    [Parameter(Mandatory=$False, ParameterSetName="Retrieve")]
     [string[]]
     $customMetricNames,
 
-    [Parameter(Mandatory=$False)]
+    [Parameter(Mandatory=$False, ParameterSetName="Retrieve")]
     [int]
     $numberOfDays = 14,
 
@@ -55,6 +61,7 @@ param(
     $installExtensions,
 
     [Parameter(Mandatory=$False)]
+    [Parameter(Mandatory=$True, ParameterSetName="Retrieve")]
     [switch]
     $retrieveMetrics
 
