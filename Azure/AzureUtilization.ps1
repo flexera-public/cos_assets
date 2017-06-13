@@ -546,8 +546,8 @@ if ($installExtensions) {
 }
 
 if ($retrieveMetrics) {
-    $defaultWindowsMetrics = @("\Processor Information(_Total)\% Processor Time", )
-    $defaultLinuxMetrics =  @("\Processor\PercentProcessorTime",)
+    $defaultWindowsMetrics = @("\Processor Information(_Total)\% Processor Time", "\Memory\Available Bytes", "\Memory\Committed Bytes" )
+    $defaultLinuxMetrics =  @("\Processor\PercentProcessorTime", "\Memory\AvailableMemory", "\Memory\UsedMemory")
     $results = @()
 
     if ($subscriptionId) {
@@ -667,5 +667,6 @@ if ($retrieveMetrics) {
             $results += $psObject
         } 
     }
+    $results | Export-Csv -Path ".\$companyName-Metrics.csv" -Force
 }
 

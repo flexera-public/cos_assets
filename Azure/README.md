@@ -17,6 +17,22 @@ There are 2 main ways to execute the script: using in-line parameters & using a 
 - AzureRM PowerShell Module
 
 ## Usage
+
+### Recommended Usage
+
+- If the customer has stated that they alread have the Diagnostics Extension installed on their VMs:
+    1. Ask for the XML configs used to enable the Extensions and verify if the **Default Metrics** of this script are listed in their XML configs.
+    1. If the **Default Metrics** are in their config, proceed to execute script with `-retrieveMetrics`
+    1. If the **Default Metrics** are not in their config, identify which Metrics to gather, and proceed to execute script with `-retrieveMetrics -customMetricNames foo,bar`
+- If the customer knows that the Diagnostics Extension is not installed on all of their VMs, or if they are unsure:
+    1. Execute script with `-checkForExtensions`
+    1. Provide customer with list of VMs that do not have the extension
+    1. Schedule time to:
+        - Execute script with `-installExtensions`
+        - Schedule reboot of VMs
+        - **Note:** These 2 steps can be scheduled during different Maintenance Windows
+    1. Execute script with `-retrieveMetrics` 
+
 ### Parameters
 The Parameters listed below have the same purpose, regardless of execution method.
 
@@ -34,6 +50,8 @@ The Parameters listed below have the same purpose, regardless of execution metho
 | checkForExtensions | no | If set, the portion of the script that discovers VMs without the Diagnostics Extension will executte | CSV & In-Line | switch | Can be used in conjunction with other switches |
 | installExtensions | no | If set, the portion of the script that installs the Diagnostics Extension on VMs will executte | CSV & In-Line | switch | Can be used in conjunction with other switches |
 | retrieveMetrics | no | If set, the portion of the script that retrieves Diagnostics data will executte | CSV & In-Line | switch | Can be used in conjunction with other switches, although that doesn't sound like a logical use case |
+| numberOfDays | no | Identifies how many days to retrieve metrics for | CSV & In-Line | integer | Default value is `14`.  Only needed if `-retrieveMetrics` is set & need to gather metrics for a different timespan | 
+| customMetricNames | no | Array of additional Metric Names to be gathered (beyond default metrics) | CSV & In-Line | string[] | Only the average of the specified metrics will be retrieved | 
 
 `*`Only required when executing via the CSV Input method
 
@@ -77,6 +95,26 @@ $mycred = Get-Credential
 
 .\AzureUtilization.ps1 -companyName "Kramerica" -subscriptionId "12345678-1234-1234-1234-123456789012" -resourceGroupName "MyResourceGroup" -createStorageAccount $true -azureUsername $mycred.UserName -azurePassword $mycred.Password -location eastus -retrieveMetrics
 
+## Retrieve Metrics - Additional Notes
+- In the event that you would like to target specific Subscriptions to retrieve VM Metrics, you may use the `-subscriptionId` or `-csvPath` parameters.  If you would like to retrieve VM Metrics across all Subscriptions (that the user account has access to), you can execute `-retrieveMetrics` without either of these additional parameters.
+- The `-customMetricNames` parameter can be used in conjunction with `-retrieveMetrics` if necessary.  The output will only be the Metrics' average, in the format returned by Azure (ie. If Azure returns values in `bytes`, the result will be Average Bytes during the same timespan as the Default Metrics)
+- If a VM does not have the Diagnostics Extension installed, the Metric fields will have a value of: `Ext Not Installed`
+- If a VM has the Diagnostics Extension installed, but does not return a value for the target metric, the Metric field will have a value of: `N/A`
+
+### Default Metrics
+The following are the Default Metrics that will attempt to be gathered when executing the script with `-retrieveMetrics`:
+
+- **Windows:**
+    - \Processor Information(_Total)\% Processor Time
+    - \Memory\Available Bytes 
+    - \Memory\Committed Bytes
+
+- **Linux:**  
+    - \Processor\PercentProcessorTime
+    - \Memory\AvailableMemory
+    - \Memory\UsedMemory
+
+
 ## Outputs
 All outputs will appear in the working directory.
 
@@ -89,7 +127,22 @@ All outputs will appear in the working directory.
 - [Company Name]-Phase2-VMsPoweredOff-ExtensionNotInstalled.csv
 
 ### retrieveMetrics
+- [Company Name]-Metrics.csv
 
+#### Fields returned in Metrics Output
+- SubscriptionName
+- SubscriptionId
+- VMname
+- ResourceId
+- Region
+- Timespan
+- Avg-CPU%
+- Max-CPU%
+- Avg-MemUsed%(Calculated)
+- Avg-MemUsed(GB)
+- Max-MemUsed(GB)
+**Optional:**
+- Avg-[Custom Metric Name]
 
 ## Limitations
 - Azure Classic is not supported
