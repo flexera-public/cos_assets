@@ -600,7 +600,7 @@ if ($retrieveMetrics) {
                             $avg, $i = $null
                             $metric.MetricValues | ForEach-Object { $avg += $_.Average ; $i++ }
                             $avgCPU = $avg / $i 
-                            $maxCPU = ($metric.MetricValues | Sort-Object Maximum -Descending).Maximum
+                            $maxCPU = ($metric.MetricValues | Sort-Object Maximum -Descending | Select-Object -First 1).Maximum
                         }
 
                     } elseif ($metricName -like "*Memory*") {
@@ -619,8 +619,8 @@ if ($retrieveMetrics) {
                                 $usedMem = ($metric.MetricValues | Sort-Object Timestamp | Select-Object -First 1).Maximum
                                 $avg, $i = $null
                                 $metric.MetricValues | ForEach-Object { $avg += $_.Average ; $i++ }
-                                $avgMemUsed = $avg / $i
-                                $maxMemUsed = ($metric.MetricValues | Sort-Object Maximum -Descending).Maximum /1024/1024/1024
+                                $avgMemUsed = ($avg / $i) /1024/1024/1024
+                                $maxMemUsed = ($metric.MetricValues | Sort-Object Maximum -Descending | Select-Object -First 1).Maximum /1024/1024/1024
 
                             }
                         }
