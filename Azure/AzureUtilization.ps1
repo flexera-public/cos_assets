@@ -458,6 +458,11 @@ if ($installExtensions) {
             if ($createStorageAccount) {
                 if (!$account.storageAccountName) {
                     $saName = Request-StorageAccountName -storageAccountPrefix "rsdiag"
+                    $checkSA = Get-AzureRmStorageAccountNameAvailability -Name $saName
+                    while (!$checkSA.NameAvailable) {
+                        $saName = Request-StorageAccountName -storageAccountPrefix "rsdiag"
+                        $checkSA = Get-AzureRmStorageAccountNameAvailability -Name $saName
+                    }
                 } else {
                     $saName = $account.storageAccountName
                 }
@@ -502,6 +507,11 @@ if ($installExtensions) {
             if ($createStorageAccount) {
                 if (!$account.storageAccountName) {
                     $saName = Request-StorageAccountName -storageAccountPrefix "RSDiag"
+                    $checkSA = Get-AzureRmStorageAccountNameAvailability -Name $saName
+                    while (!$checkSA.NameAvailable) {
+                        $saName = Request-StorageAccountName -storageAccountPrefix "rsdiag"
+                        $checkSA = Get-AzureRmStorageAccountNameAvailability -Name $saName
+                    }
                 } else {
                     $saName = $account.storageAccountName
                 }
