@@ -2,13 +2,20 @@ language: python
 python:
   - "3.6"
 cache: pip
+install:
+  # This is actually totally unecessary, but if I don't add it, Travis attempts
+  # to install the contents of "requirements.txt", which of course does not
+  # exist. There's probably a better way..
+  - pip install awscli
 deploy:
+  # Deploy the CloudWatch script
   provider: s3
   access_key_id: $AWS_ACCESS_KEY_ID
   secret_access_key: $AWS_SECRET_ACCESS_KEY
   bucket: "rs-cos-assets"
   skip_cleanup: true
   local_dir: EC2
+  upload-dir: ec2
 env:
   global:
   - secure: z91myPMgnToAMvVwBP8d3MVwLiTVCy7eCxj+8pOk+ldx2ybPKZvQhmBMNKLc0rx7Frb5Ycuwvx0ssd33FoPvKN3RhozgLHByEhomUj5jvqFqLlnvgNCoJ6oalEpThQXsdPlm4vUJ9DWytWNSDWJ06Et0xZeDFykM2te0TS68x1BmS4RXdKuouwvxuESfBalwU+hCGTVMuRD0+4F7IuDV+9u/2lIFKpyYauTpuLPAZORIbuaS93yXxYPvlKIuCUByjKidVPdAQnzFU1iVzIqSTSLqSoyL1ahdeiEbyaz24VYfmA6VHYWXwjD8JfzaLQDSJUUIT/Rq7kDPZbVr7sDSW1PgkobV/rtAXfsGPEACAXY5jcuUW5LzdM7VRwPwjRhm5T3DVz+p9s0y4+twpwY5x7BiwgvnpEJDrAksEu7FA1cniLRtvnx4psrAfGj9dFoXgqEeS+VJivYfrWWUpHZiJEmNaiRlQd0uhP6j66DN/iDnmIfQVyah2XYyF2l/PN5tTLdcS1P9e2Wwb+iwGjvHkId5cB+OJvaE6TU27Uxazx5NTn1P8SjOClX+LzzUBvu1/4gNvYMOVN8NeghVfjyLL6OEalawGps0pYIDSKvWnZns46nffYjOnwZTUzmsBYyz8jeA8KDgITd1jRtLUQt6XeyyLobkjgIV7lSZs7DxHMQ=
