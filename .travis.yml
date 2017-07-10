@@ -6,7 +6,9 @@ install:
   # This is actually totally unecessary, but if I don't add it, Travis attempts
   # to install the contents of "requirements.txt", which of course does not
   # exist. There's probably a better way..
-  - pip install awscli
+  - return 0
+script:
+  - return 0
 deploy:
   # Deploy the CloudWatch script
   provider: s3
