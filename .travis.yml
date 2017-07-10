@@ -8,7 +8,7 @@ install:
   # exist. There's probably a better way..
   - return 0
 script:
-  - return 0
+  - travis/build_archives.sh
 deploy:
   # Deploy the CloudWatch script
   provider: s3
@@ -16,7 +16,7 @@ deploy:
   secret_access_key: $AWS_SECRET_ACCESS_KEY
   bucket: "rs-cos-assets"
   skip_cleanup: true
-  local_dir: EC2
+  local_dir: builds/ec2
   upload-dir: ec2
 env:
   global:
