@@ -11,10 +11,10 @@ Current TravisCI build/deploy status for master branch:
 
 ## Publication Account Details
 The assets are published to an S3 bucket in the RightScale Professional Services AWS account
-AWS Account ID: 046153706588
-AWS IAM User ARN: arn:aws:iam::046153706588:user/cos_assets_travis
-RightScale Account ID: 58242
-S3 Bucket: https://s3.amazonaws.com/rs-cos-assets
+* AWS Account ID: 046153706588
+* AWS IAM User ARN: arn:aws:iam::046153706588:user/cos_assets_travis
+* RightScale Account ID: 58242
+* S3 Bucket: https://s3.amazonaws.com/rs-cos-assets
 
 ## cw_cpu_avg
 The CloudWatch CPU utilization script `cw_cpu_avg` is published to a subfolder of the bucket named `cw_cpu_avg`.
