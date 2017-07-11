@@ -17,8 +17,8 @@ deploy:
   secret_access_key: $AWS_SECRET_ACCESS_KEY
   bucket: "rs-cos-assets"
   skip_cleanup: true
-  local_dir: builds/ec2
-  upload-dir: ec2
+  local_dir: builds/cw_cpu_avg
+  upload-dir: cw_cpu_avg
   acl: public_read
 env:
   global:

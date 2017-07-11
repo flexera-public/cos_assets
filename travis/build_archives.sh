@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-prefix="branch-$TRAVIS_BRANCH"
+prefix="cw_cpu_avg-branch-$TRAVIS_BRANCH"
 if [[ -n "$TRAVIS_TAG" ]]; then
-  prefix="tag-$TRAVIS_TAG"
+  prefix="cw_cpu_avg-tag-$TRAVIS_TAG"
 fi
-mkdir -p builds/ec2
-tar -zcvf builds/ec2/$prefix.tar.gz EC2/
+mkdir -p builds/cw_cpu_avg
+tar -zcvf builds/cw_cpu_avg/$prefix.tar.gz cw_cpu_avg/

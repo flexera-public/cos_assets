@@ -43,7 +43,7 @@ The bare minimum permissions are described in the following IAM policy.
 ```
 
 ## usage
-Everything necessary to run the script `cpuavgs.sh` is encapsulated in the docker image which would be built by the Dockerfile.
+Everything necessary to run the script `cw_cpu_avg.sh` is encapsulated in the docker image which would be built by the Dockerfile.
 
 The docker image will write the csv output to `/home/aws/output/<date>-<region>.csv` files, so if you'd like to fetch the output, make sure to map a volume there.
 
