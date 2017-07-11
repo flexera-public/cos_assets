@@ -7,7 +7,7 @@ Some of the tools in this repo need to be made available for customers to execut
 These assets are published on each commit to the repo using a TravisCI workflow.
 
 Current TravisCI build/deploy status for master branch:
-[![Build Status](https://travis-ci.org/rs-services/cos_assets.svg?branch=master)](https://travis-ci.org/rs-services/cos_assets)
+[![Build Status](https://travis-ci.com/rs-services/cos_assets.svg?branch=master)](https://travis-ci.com/rs-services/cos_assets)
 
 ## Publication Account Details
 The assets are published to an S3 bucket in the RightScale Professional Services AWS account
