@@ -34,7 +34,7 @@ foreach ($account in $accounts) {
             $unattached += $vol 
         }
     }                                              
-    $total_unattached += $unattached | Select-Object @{name="account_number";expression={$account}},name,description,resource_uid,size,status,created_at,updated_at,cloud_specific_attributes,@{name="href";expression={$($_.links | Where-Object rel -eq "self").href}} #| Export-Csv "./$account-unattached-volumes.csv"  
+    $total_unattached += $unattached | Select-Object @{name="accountnumber";expression={$account}},name,description,resource_uid,size,status,created_at,updated_at,cloud_specific_attributes,@{name="href";expression={$($_.links | Where-Object rel -eq "self").href}} #| Export-Csv "./$account-unattached-volumes.csv"  
 }
 
-$total_unattached | Export-Csv "./$customer_name-unattached-volumes.csv"
+$total_unattached | Export-Csv "./$customer_name-unattached-volumes.csv" -NoTypeInformation
