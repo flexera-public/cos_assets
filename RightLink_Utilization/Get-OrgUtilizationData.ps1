@@ -2,13 +2,13 @@
 # The output of this script will be a CSV created in the working directory
 # If a parent account/org account number is provided, it will attempt to gather metrics from all child accounts.
 # Requires enterprise_manager on the parent and observer on the child accounts
-# Beginning and end time fram can be enters as just dates, which will set a time of midnight, or fully qualified dates and times.
+# Beginning and end time frame can be enters as just dates, which will set a time of midnight, or fully qualified dates and times.
 
-$customer_name = Read-Host "Enter Customer Name"
+$customer_name = Read-Host "Enter Customer Name" # Used for name of CSV
 $email = Read-Host "Enter RS email address" # email address associated with RS user
 $password = Read-Host "Enter RS Password" # RS password
 $endpoint = Read-Host "Enter RS API endpoint (us-3.rightscale.com -or- us-4.rightscale.com)" # us-3.rightscale.com -or- us-4.rightscale.com
-$accounts = Read-Host "Enter comma seperated list of RS Account Number(s) or the Parent Account number. Example: 1234,4321,1111" # RS account numbers
+$accounts = Read-Host "Enter a comma-separated list of RS Account Number(s) or the Parent Account number. Example: 1234,4321,1111" # RS account numbers
 $startTime = Read-host "Enter beginning of time frame to collect from in MM/DD/YYYY HH:MM:SS"
 $endTime = Read-Host "Enter end of time frame to collect from in MM/DD/YYYY HH:MM:SS or press enter for now"
 
@@ -49,6 +49,8 @@ if($accounts.Count -eq 1) {
 $instancesDetail = @()
 # For each account
 foreach ($account in $accounts) {
+    $accountName = (./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 show /api/accounts/$account | ConvertFrom-Json) | Select-Object -ExpandProperty name
+
     # Get Clouds
     $clouds = ./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 index /api/clouds | ConvertFrom-Json
     if (!($clouds)) {
@@ -64,11 +66,11 @@ foreach ($account in $accounts) {
             # Get instances. Use extended view so we get an instance_type href.
             $instances = ./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 index $cloudHref/instances "filter[]=state==Operational" "view=extended" | ConvertFrom-Json
             if(!($instances)) {
-                Write-Host "$account : $cloudId : No running instances : $cloudName"
+                Write-Host "$account : $cloudName : No running instances"
                 CONTINUE
             }
             else {
-                Write-Host "$account : $cloudId : Getting running instances : $cloudName"
+                Write-Host "$account : $cloudName : Getting running instances"
                 # Get instance types
                 $instanceTypes = ./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 index $cloudHref/instance_types | ConvertFrom-Json
                 $instanceTypes = $instanceTypes | Select-Object name, resource_uid, description, memory, cpu_architecture, cpu_count, cpu_speed, @{Name="href";Expression={$_.links | Where-Object { $_.rel -eq "self" } | Select-Object -ExpandProperty href}}
@@ -99,7 +101,7 @@ foreach ($account in $accounts) {
                         # Get cpu_avg:percent-loadavg Monitoring Metrics
                         $cpuData = ./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 data $instanceHref/monitoring_metrics/cpu_avg:percent-loadavg/data "start=$startTime" "end=$endTime" --pp 2>$null | ConvertFrom-Json
                         if ($cpuData) {
-                            Write-Host "$account : $cloudId : $instanceUid : Collected CPU metrics"
+                            Write-Host "$account : $cloudName : $instanceUid : Collected CPU metrics"
                             $cpuDataPoints = $cpuData.variables_data.points | Where-Object { $_ } # Trim $null returns
                             $cpuDataPointsTotal = $cpuDataPoints.count
                             
@@ -117,19 +119,20 @@ foreach ($account in $accounts) {
                             }
                         }
                         else {
-                            Write-Host "$account : $cloudId : $instanceUid : Unable to retrieve cpu monitoring data"
+                            Write-Host "$account : $cloudName : $instanceUid : Unable to retrieve cpu monitoring data"
                         }
                     }
                     else {
                         # Get cpu-0:cpu-idle Monitoring Metrics
                         $cpuData = ./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 data $instanceHref/monitoring_metrics/cpu-0:cpu-idle/data "start=$startTime" "end=$endTime" --pp 2>$null | ConvertFrom-Json
                         if ($cpuData) {
-                            Write-Host "$account : $cloudId : $instanceUid : Collected CPU metrics"
+                            Write-Host "$account : $cloudName : $instanceUid : Collected CPU metrics"
                             $cpuDataPoints = $cpuData.variables_data.points | Where-Object { $_ } # Trim $null returns
                             $cpuDataPointsTotal = $cpuDataPoints.count
                             
                             ## Calculate CPU max
-                            $cpuMaxIdle = $cpuDataPoints | Where-Object { $_ -ne 0 } | Sort-Object -Descending | Select-Object -Last 1
+                            #$cpuMaxIdle = $cpuDataPoints | Where-Object { $_ -ne 0 } | Sort-Object -Descending | Select-Object -Last 1
+                            $cpuMaxIdle = $cpuDataPoints | Sort-Object -Descending | Select-Object -Last 1
                             if ($cpuMaxIdle -ne $null) {
                                 $cpuMax = "{00:N2}" -f (100 - $cpuMaxIdle) # Convert idle to used and format the number
                             }
@@ -141,7 +144,7 @@ foreach ($account in $accounts) {
                             }
                         }
                         else {
-                            Write-Host "$account : $cloudId : $instanceUid : Unable to retrieve cpu monitoring data"
+                            Write-Host "$account : $cloudName : $instanceUid : Unable to retrieve cpu monitoring data"
                         }
                     }
 
@@ -149,7 +152,7 @@ foreach ($account in $accounts) {
                     $memMax = $null; $memAvg = $null; $memData = $null; $memDataPoints = $null; $memDataPointsTotal = $null;
                     $memData = ./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 data $instanceHref/monitoring_metrics/memory:memory-used/data "start=$startTime" "end=$endTime" --pp 2>$null | ConvertFrom-Json
                     if ($memData) {
-                        Write-Host "$account : $cloudId : $instanceUid : Collected Memory metrics"
+                        Write-Host "$account : $cloudName : $instanceUid : Collected Memory metrics"
                         $memDataPoints = $memData.variables_data.points | Where-Object { $_ } # Trim $null returns
                         $memDataPointsTotal = $memDataPoints.count
                         
@@ -168,7 +171,7 @@ foreach ($account in $accounts) {
                         }
                     }
                     else {
-                        Write-Host "$account : $cloudId : $instanceUid : Unable to retrieve memory monitoring data"
+                        Write-Host "$account : $cloudName : $instanceUid : Unable to retrieve memory monitoring data"
                     }
 
                     $cpuTimeFrame = $null; $memTimeFrame = $null; $metricTimespan = 0;
@@ -193,6 +196,7 @@ foreach ($account in $accounts) {
 
                     $object = New-Object -TypeName PSObject
                     $object | Add-Member -MemberType NoteProperty -Name "Account" -Value $account
+                    $object | Add-Member -MemberType NoteProperty -Name "Account_Name" -Value $accountName
                     $object | Add-Member -MemberType NoteProperty -Name "Cloud" -Value $cloudName
                     $object | Add-Member -MemberType NoteProperty -Name "Instance_Name" -Value $instance.name
                     $object | Add-Member -MemberType NoteProperty -Name "Resource_UID" -Value $instanceUid
