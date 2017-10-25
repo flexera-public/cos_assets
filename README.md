@@ -2,12 +2,12 @@
 This repo contains a library of open source RightScale Cost Optimization Assets.
 
 ### Utilization Scripts
-- [Azure Utilization Script] (./Azure/)
+- [Azure Utilization Script](./Azure/)
 - [AWS Utilization Script](./cw_cpu_avg/)
 
 
 ### Unattached Volumes
-- [Get Unattached Volumes Script (Azure and AWS)] (./Unattached_Volumes/)
+- [Get Unattached Volumes Script (Azure and AWS)](./Unattached_Volumes/)
 
 
 ### Snapshots
