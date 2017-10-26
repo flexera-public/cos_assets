@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
 
     [Parameter(Mandatory=$True)]
@@ -88,6 +88,46 @@ function Request-StorageAccountName($storageAccountPrefix){
     return $storageAccountName
 }
 
+function GetVMPowerState( $vmStatusObj ) {
+    $retVal = "Off"
+    foreach ( $curStatusObj in $vmStatusObj.Statuses ) {
+        if ( $curStatusObj.Code -eq "PowerState/running" -and 
+             $curStatusObj.DisplayStatus -eq "VM running" ) {
+             $retVal = "On"
+             break
+        }
+    }
+    return $retVal
+}
+
+# mostly done so we don't have null object dereference errors 
+function GetVMAgentStatus( $newVMStatusObj ) {
+    $retVal = "Inactive"
+    if ( $newVMStatusObj -and 
+         $newVMStatusObj.VMAgent -and 
+         $newVMStatusObj.VMAgent.Statuses -and
+         $newVMStatusObj.VMAgent.Statuses[0].DisplayStatus ) {
+         if ( $newVMStatusObj.VMAgent.Statuses[0].DisplayStatus -eq "Ready" ) {
+            $retVal = "Active"
+         }
+    }
+    return $retVal
+}
+
+# do a wildcard search on extension type, if found return true
+function Confirm-DiagnosticExtensionByTypeWithStatus ($vmStatus, $extensionType){
+    $retVal = $False
+    if ( GetVMAgentStatus( $vmStatus ) -eq "Active" ) {
+        foreach ( $curExtHandler in $vmStatus.VMAgent.ExtensionHandlers ) {
+            if ( $curExtHandler.Type -like ("*" + $extensionType) ) {
+                $retVal = $True
+                break
+            }
+        }
+     }
+     return $retVal
+}
+
 function Confirm-DiagnosticsExtension($extensionName, $vmName, $resourceGroupName) {
     $vm = Get-AzureRmVM -Name $vmName -ResourceGroupName $resourceGroupName -WarningAction Ignore
     $extension = Get-AzureRmVMExtension -ResourceGroupName $vm.ResourceGroupName -VMName $vmName -Name $extensionName -ErrorAction SilentlyContinue
@@ -98,20 +138,48 @@ function Confirm-DiagnosticsExtension($extensionName, $vmName, $resourceGroupNam
     }
 }
 
-function Enable-DiagnosticsExtension($storageAccountName, $vmName) {
+function Determine-ProperOSTypeforVM($vm) {
+	if ($vm -and $vm.OSProfile ) {
+		if ($vm.OSProfile.WindowsConfiguration) {
+			$osType = "Windows"
+		} elseif ($vm.OSProfile.LinuxConfiguration) {
+			$osType = "Linux"
+		}
+    } 
+	if ( -not $osType ) {
+        $curVMStatus = $vm | Get-AzureRmVM -Status
+        $osType = "Linux"
+        foreach ( $curExtHandler in $curVMStatus.Extensions ){
+            if ( $curExtHandler.Name -like "*Linux*" -or $curExtHandler.Type -like "*Linux*" ) {
+                break
+            }
+            if ( $curExtHandler.Type -like "*BGInfo*" -or $curExtHandler.Type -like "*MicrosoftMonitoringAgent*") {
+                $osType = "Windows"
+                break
+            }
+        }
+    }
+    return $osType
+}
+
+function Enable-DiagnosticsExtension($storageAccountName, $vm) {
     $sa = Get-AzureRmStorageAccount | Where-Object StorageAccountName -eq $storageAccountName
+    if (!$sa) {
+        Write-Host "Error getting storage account $storageAccountName for vm $vmName"
+        return
+    }
     $storageAccountKeys = Get-AzureRmStorageAccountKey -ResourceGroupName $sa.ResourceGroupName -Name $storageAccountName
+    if ( !$storageAccountKeys ) {
+        Write-Host "Error getting storage account key for ResourceGroupName $sa.ResourceGroupName and StorageAccountName $storageAccountName"
+        return
+    }
     $storageAccountKey = $storageAccountKeys[0].Value
 
-    $vm = Get-AzureRmVM -WarningAction Ignore | Where-Object Name -eq $vmName 
     $vmId = $vm.Id
+    $vmName = $vm.Name
     $location = $vm.Location
     $rgName = $vm.ResourceGroupName
-    if ($vm.OSProfile.WindowsConfiguration) {
-        $osType = "Windows"
-    } elseif ($vm.OSProfile.LinuxConfiguration) {
-        $osType = "Linux"
-    } 
+    $osType = Determine-ProperOSTypeforVM -vm $vm
 
     if ($osType -eq "Windows") {
         $windowsXml ='<?xml version="1.0" encoding="utf-8"?>
@@ -219,7 +287,15 @@ function Enable-DiagnosticsExtension($storageAccountName, $vmName) {
         $xmlConfigPath = (New-TemporaryFile).FullName
         $config.Save($xmlConfigPath)
 
+        # to get status updates on extension install uncomment these date/time and console calls
+        #$curDateTime = get-date
+        #[console]::writeline("{0:t} starting Windows Set-AzureRmVMDiagnosticsExtension VMname {1:s} ResourceGroup {2:s}", $curDateTime, $vmName, $rgName)
+
         Set-AzureRmVMDiagnosticsExtension -ResourceGroupName $rgName -VMName $vmName -DiagnosticsConfigurationPath $xmlConfigPath -StorageAccountName $storageAccountName -StorageAccountKey $storageAccountKey
+
+        #$curDateTime = get-date
+        #[console]::writeline("{0:t} finished VMname {1:s}", $curDateTime, $vmName)
+
 
     }
     elseif ($osType -eq "Linux") {
@@ -360,8 +436,15 @@ function Enable-DiagnosticsExtension($storageAccountName, $vmName) {
             "storageAccountName": "'+$storageAccountName+'",
             "storageAccountKey": "'+$storageAccountKey+'"
 }'
-
+        # to get status updates on extension install uncomment these date/time and console calls
+        #$curDateTime = get-date
+        #[console]::writeline("{0:t} starting Linux Set-AzureRmVMExtension VMname {1:s} ResourceGroup {2:s}", $curDateTime, $vmName, $rgName)
+		
         Set-AzureRmVMExtension -ResourceGroupName $rgName -VMName $vmName -Name "LinuxDiagnostic" -Publisher "Microsoft.OSTCExtensions" -ExtensionType "LinuxDiagnostic" -TypeHandlerVersion "2.3" -Settingstring $settingsString -ProtectedSettingString $protectedSettingString -Location $location
+
+        #$curDateTime = get-date
+        #[console]::writeline("{0:t} finished VMname {1:s}", $curDateTime, $vmName)
+
     }
 
 }
@@ -427,24 +510,34 @@ if ($checkForExtensions){
         Select-AzureRmSubscription -SubscriptionId $account.subscriptionId
         $vms = Get-AzureRmVM -WarningAction Ignore
         foreach ($vm in $vms) {
-            if ($vm.OSProfile.WindowsConfiguration) {
+            $vmOS = Determine-ProperOSTypeforVM -vm $vm
+            if ( $vmOS -eq "Windows" ) {
                 $extensionName = "IaaSDiagnostics"
-            } elseif ($vm.OSProfile.LinuxConfiguration) {
+            } elseif ( $vmOS -eq "Linux" ) {
                 $extensionName = "LinuxDiagnostic"
             } 
-            $extensionState = $null
-            $extensionState = Confirm-DiagnosticsExtension -extensionName $extensionName -vmName $vm.Name -resourceGroupName $vm.ResourceGroupName
+            $newVMStatusObj = get-azurermvm -name $vm.Name -ResourceGroupName $vm.ResourceGroupName -status
+            $currentPowerState = GetVMPowerState( $newVMStatusObj )
+            $vmAgentStatus = GetVMAgentStatus( $newVMStatusObj ) 
+            $extensionState = ""
+            if ( $extensionName -and $currentPowerState -eq "On" -and $vmAgentStatus -eq "Active" ) {
+                $extensionState = Confirm-DiagnosticExtensionByTypeWithStatus -vmStatus $newVMStatusObj -extensionType $extensionName
+            } else {
+                $extensionState = $False;
+            }
             $extensionObject = New-Object -TypeName psobject
             $extensionObject | Add-Member -MemberType NoteProperty -Name Name -Value $vm.Name 
             $extensionObject | Add-Member -MemberType NoteProperty -Name ResourceGroupName -Value $vm.ResourceGroupName
             $extensionObject | Add-Member -MemberType NoteProperty -Name SubscriptionId -Value $account.subscriptionId
+            $extensionObject | Add-Member -MemberType NoteProperty -Name PowerState -Value $currentPowerState
+            $extensionObject | Add-Member -MemberType NoteProperty -Name VMAgentState -Value $vmAgentStatus
             $extensionObject | Add-Member -MemberType NoteProperty -Name ExtensionInstalled -Value $extensionState
             $extensionStateOutput += $extensionObject
         }
     }
     $extensionStateOutput | Export-Csv -Path ".\$companyName-Phase1-AllVMExtensionState.csv" -Force
     $extensionStateOutput | Where-Object ExtensionInstalled -eq $False | Export-Csv -Path ".\$companyName-Phase1-VMsWithoutExtensions.csv" -Force
-    
+    $extensionStateOutput
 }
 
 #Install Diagnostic Extensions
@@ -485,7 +578,7 @@ if ($installExtensions) {
             
             foreach ($vm in $vms) {
                 if ((Get-AzureRmVM -Name $vm.Name -ResourceGroupName $vm.ResourceGroupName -Status -WarningAction Ignore).Statuses[1].DisplayStatus -eq "VM running") { 
-                    Enable-DiagnosticsExtension -storageAccountName $saName -vmName $vm.Name
+                    Enable-DiagnosticsExtension -storageAccountName $saName -vm $vm
                     $vmObject = New-Object -TypeName psobject
                     $vmObject | Add-Member -MemberType NoteProperty -Name VmName -Value $vm.Name 
                     $vmObject | Add-Member -MemberType NoteProperty -Name ResourceGroupName -Value $vm.ResourceGroupName
@@ -532,16 +625,20 @@ if ($installExtensions) {
                 $saName = $account.storageAccountName
             }
             foreach ($vm in $checkvms) {
-                if (($vm | Get-AzureRmVM -Status -WarningAction Ignore).Statuses[1].DisplayStatus -eq "VM running") {
-                    if ($vm.OSProfile.WindowsConfiguration) {
+                $curVMStatus = $vm | Get-AzureRmVM -Status -WarningAction Ignore
+                $curVMPowerState = GetVMPowerState($curVMStatus)
+                $curVMAgentState = GetVMAgentStatus($curVMStatus)
+                if ($curVMPowerState -eq "On" -and $curVMAgentState -eq "Active") {
+                    $vmOS = Determine-ProperOSTypeforVM -vm $vm
+                    if ( $vmOS -eq "Windows" ) {
                         $extensionName = "IaaSDiagnostics"
-                    } elseif ($vm.OSProfile.LinuxConfiguration) {
+                    } elseif ( $vmOS -eq "Linux" ) {
                         $extensionName = "LinuxDiagnostic"
                     } 
                     $extensionState = $null
-                    $extensionState = Confirm-DiagnosticsExtension -extensionName $extensionName -vmName $vm.Name -resourceGroupName $vm.ResourceGroupName
+                    $extensionState = Confirm-DiagnosticExtensionByTypeWithStatus -vmStatus $curVMStatus -extensionType $extensionName
                     if (!$extensionState) {
-                        Enable-DiagnosticsExtension -storageAccountName $saName -vmName $vm.Name
+                        Enable-DiagnosticsExtension -storageAccountName $saName -vm $vm
                         $vmObject = New-Object -TypeName psobject
                         $vmObject | Add-Member -MemberType NoteProperty -Name VmName -Value $vm.Name 
                         $vmObject | Add-Member -MemberType NoteProperty -Name ResourceGroupName -Value $vm.ResourceGroupName
@@ -584,11 +681,12 @@ if ($retrieveMetrics) {
         Select-AzureRmSubscription -SubscriptionId $account -OutVariable "subscription"
         $vms = Get-AzureRmVM -WarningAction Ignore
         foreach ($vm in $vms) {
-            if ($vm.OSProfile.WindowsConfiguration) {
+            $vmOS = Determine-ProperOSTypeforVM -vm $vm
+            if ( $vmOS -eq "Windows" ) {
                 $extensionName = "IaaSDiagnostics"
-            } elseif ($vm.OSProfile.LinuxConfiguration) {
+            } elseif ( $vmOS -eq "Linux" ) {
                 $extensionName = "LinuxDiagnostic"
-            }
+            } 
             $extensionState = $null
             $extensionState = Confirm-DiagnosticsExtension -extensionName $extensionName -vmName $vm.Name -resourceGroupName $vm.ResourceGroupName
             if ($extensionState) {
@@ -686,4 +784,3 @@ if ($retrieveMetrics) {
     }
     $results | Export-Csv -Path ".\$companyName-Metrics.csv" -Force
 }
-
