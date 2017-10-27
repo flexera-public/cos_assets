@@ -34,20 +34,20 @@ if (!([datetime]::TryParse($date,$null,"None",[ref]$date_result))) {
     foreach ($account in $accounts) {
         
         Write-Output "$($account.RSAccount) - Getting Clouds"
-        $clouds = ./rsc --email $email --pwd $password --host $endpoint --account $($account.RSAccount) --timeout=1800 cm15 index clouds | ConvertFrom-Json
+        $clouds = ./rsc --email $email --pwd $password --host $endpoint --account $($account.RSAccount) --timeout=1200 cm15 index clouds | ConvertFrom-Json
         
         $cloud_hash = @{}
         foreach ($cloud in $clouds) {
             $cloud_hash.Add($(($cloud.links | Where-Object rel -eq self).href), $cloud.display_name)
         }
-        
+
         Write-Output "$($account.RSAccount) - Getting Volume Details"
         $all_vol = @()
         foreach ($cloud in $clouds) { 
             Write-Output "$($account.RSAccount) - Cloud: $($cloud.display_name)"
             if ($($cloud.links | Where-Object rel -eq volumes)) {
                 $vol = @()
-                $vol = ./rsc --email $email --pwd $password --host $endpoint --account $($account.RSAccount) --timeout=1800 cm15 index $($cloud.links | Where-Object rel -eq volumes).href | ConvertFrom-Json
+                $vol = ./rsc --email $email --pwd $password --host $endpoint --account $($account.RSAccount) --timeout=1200 cm15 index $($cloud.links | Where-Object rel -eq volumes).href | ConvertFrom-Json
                 $all_vol += $vol 
             }
         }
@@ -62,12 +62,12 @@ if (!([datetime]::TryParse($date,$null,"None",[ref]$date_result))) {
             if ($($cloud.links | Where-Object rel -eq volume_snapshots)) {
                 if (($cloud.display_name -like "AWS*") -and ($account.AWSAccount -ne $null)) {
                     $snaps = @()
-                    $snaps = ./rsc --email $email --pwd $password --host $endpoint --account $($account.RSAccount) --timeout=300 cm15 index $($cloud.links | Where-Object rel -eq volume_snapshots).href "filter[]=aws_owner_id==$($account.AWSAccount)" | ConvertFrom-Json
+                    $snaps = ./rsc --email $email --pwd $password --host $endpoint --account $($account.RSAccount) --timeout=1200 cm15 index $($cloud.links | Where-Object rel -eq volume_snapshots).href "filter[]=aws_owner_id==$($account.AWSAccount)" | ConvertFrom-Json
                     $all_snaps += $snaps 
                     $modified_snaps += $snaps
                 } else {
                     $snaps = @()
-                    $snaps = ./rsc --email $email --pwd $password --host $endpoint --account $($account.RSAccount) --timeout=300 cm15 index $($cloud.links | Where-Object rel -eq volume_snapshots).href | ConvertFrom-Json
+                    $snaps = ./rsc --email $email --pwd $password --host $endpoint --account $($account.RSAccount) --timeout=1200 cm15 index $($cloud.links | Where-Object rel -eq volume_snapshots).href | ConvertFrom-Json
                     $all_snaps += $snaps 
                     $modified_snaps += $snaps
                 }
