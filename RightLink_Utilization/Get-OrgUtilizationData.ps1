@@ -2,7 +2,7 @@
 # The output of this script will be a CSV created in the working directory
 # If a parent account/org account number is provided, it will attempt to gather metrics from all child accounts.
 # Requires enterprise_manager on the parent and observer on the child accounts
-# Beginning and end time frame can be enters as just dates, which will set a time of midnight, or fully qualified dates and times.
+# Beginning and end time frame can be enterd as just dates, which will set a time of midnight, or fully qualified dates and times.
 
 $customer_name = Read-Host "Enter Customer Name" # Used for name of CSV
 $email = Read-Host "Enter RS email address" # email address associated with RS user
@@ -46,8 +46,45 @@ if($accounts.Count -eq 1) {
     }
 }
 
+# Use Optima to retrieve Cloud Account Name and Cloud Account ID
+$contentType = "application/json"
+$header = @{"X_API_VERSION"="1.5"}
+$uri = "https://$endpoint/api/session"
+$body = @{
+    "email"=$email
+    "password"=$password
+    "account_href"="/api/accounts/$($accounts[0])"
+} | ConvertTo-Json
+
+$authResult = Invoke-WebRequest -Uri $uri -Method Post -Headers $header -ContentType $contentType -Body $body -SessionVariable authSession
+$webSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+$webSession.cookies = $authSession.cookies
+
+$currentDate = Get-Date
+$optimaStartTime = "$($currentDate.Year)-$($currentDate.Month)-01T00:00:00+0000"
+$optimaEndTime = "$($currentDate.Year)-$(($currentDate.AddMonths(1)).Month)-01T00:00:00+0000"
+
+$optimaHeaders = @{
+    "X-API-Version"="1.0"
+}
+$optimaBodyPayload = @{
+    "start_time"=$optimaStartTime
+    "end_time"=$optimaEndTime
+    "group"=@(
+            @("cloud_vendor_account_id","cloud_vendor_account_name","account_id","account_name","cloud_vendor_name"),@("account_id")
+    )
+    "combined_cost_filters"=@(@{
+        "kind"= "ca#filter"
+        "type"= "combined_cost:account_id"
+        "value"= "$($accounts[0])"
+        "negate"= "false"
+    })
+} | ConvertTo-Json
+$optimaResult = Invoke-WebRequest -Uri "https://analytics.rightscale.com/api/combined_costs/actions/grouped_time_series" -WebSession $webSession -Method Post -Headers $optimaHeaders -ContentType $contentType -Body $optimaBodyPayload
+$optimaAccounts = ($optimaResult | ConvertFrom-Json).results.group
+
+# Step through each account and collect monitoring metrics
 $instancesDetail = @()
-# For each account
 foreach ($account in $accounts) {
     $accountName = (./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 show /api/accounts/$account | ConvertFrom-Json) | Select-Object -ExpandProperty name
 
@@ -193,10 +230,26 @@ foreach ($account in $accounts) {
                             $metricTimespan = "{00:N2}" -f $memTimeFrame
                         }
                     }
+                    
+                    # Gather cloud vendor data from Optima Result
+                    $cloudAccountId = ""
+                    $cloudAccountName = ""
+                    switch -wildcard ($cloudName) {
+                        "Azure*" {$cloud_vendor_name = "Microsoft Azure"}
+                        "Google*" {$cloud_vendor_name = "Google"}
+                        "AWS*" {$cloud_vendor_name = "Amazon Web Services"}
+                        default {$cloud_vendor_name = "Unknown"}
+                    }
+                    $optimaData = $optimaAccounts | Where-Object { $_.account_id -eq $account } | Where-Object { $_.cloud_vendor_name -eq $cloud_vendor_name }
+                    $cloudAccountId = $optimaData | Select-Object -First 1 -ExpandProperty cloud_vendor_account_id
+                    $cloudAccountName = $optimaData | Select-Object -First 1 -ExpandProperty cloud_vendor_account_name
 
+                    # Build the object to export to CSV
                     $object = New-Object -TypeName PSObject
-                    $object | Add-Member -MemberType NoteProperty -Name "Account" -Value $account
-                    $object | Add-Member -MemberType NoteProperty -Name "Account_Name" -Value $accountName
+                    $object | Add-Member -MemberType NoteProperty -Name "RS_Account_ID" -Value $account
+                    $object | Add-Member -MemberType NoteProperty -Name "RS_Account_Name" -Value $accountName
+                    $object | Add-Member -MemberType NoteProperty -Name "Cloud_Account_ID" -Value $cloudAccountId
+                    $object | Add-Member -MemberType NoteProperty -Name "Cloud_Account_Name" -Value $cloudAccountName
                     $object | Add-Member -MemberType NoteProperty -Name "Cloud" -Value $cloudName
                     $object | Add-Member -MemberType NoteProperty -Name "Instance_Name" -Value $instance.name
                     $object | Add-Member -MemberType NoteProperty -Name "Resource_UID" -Value $instanceUid
