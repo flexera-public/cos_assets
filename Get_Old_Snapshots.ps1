@@ -32,41 +32,49 @@ if (!([datetime]::TryParse($date,$null,"None",[ref]$date_result))) {
     $csv_time = Get-Date -Format dd-MMM-yyyy_hhmmss
     $my_date = Get-Date $date
     foreach ($account in $accounts) {
-        $clouds = ./rsc --email $email --pwd $password --host $endpoint --account $($account.RSAccount) cm15 index clouds | ConvertFrom-Json
-
+        
+        Write-Output "$($account.RSAccount) - Getting Clouds"
+        $clouds = ./rsc --email $email --pwd $password --host $endpoint --account $($account.RSAccount) --timeout=1800 cm15 index clouds | ConvertFrom-Json
+        
         $cloud_hash = @{}
-        foreach ($cloud in $clouds) {$cloud_hash.Add($(($cloud.links | Where-Object rel -eq self).href), $cloud.display_name)}
-
+        foreach ($cloud in $clouds) {
+            $cloud_hash.Add($(($cloud.links | Where-Object rel -eq self).href), $cloud.display_name)
+        }
+        
+        Write-Output "$($account.RSAccount) - Getting Volume Details"
         $all_vol = @()
         foreach ($cloud in $clouds) { 
+            Write-Output "$($account.RSAccount) - Cloud: $($cloud.display_name)"
             if ($($cloud.links | Where-Object rel -eq volumes)) {
                 $vol = @()
-                $vol = ./rsc --email $email --pwd $password --host $endpoint --account $($account.RSAccount) cm15 index $($cloud.links | Where-Object rel -eq volumes).href | ConvertFrom-Json
+                $vol = ./rsc --email $email --pwd $password --host $endpoint --account $($account.RSAccount) --timeout=1800 cm15 index $($cloud.links | Where-Object rel -eq volumes).href | ConvertFrom-Json
                 $all_vol += $vol 
             }
         }
 
         $vol_hrefs = @($($all_vol.links | Where-Object rel -eq self).href)
 
+        Write-Output "$($account.RSAccount) - Getting Snapshot Details"
         $all_snaps = @()
         [System.Collections.ArrayList]$modified_snaps = @()
         foreach ($cloud in $clouds) {  
+            Write-Output "$($account.RSAccount) - Cloud: $($cloud.display_name)"
             if ($($cloud.links | Where-Object rel -eq volume_snapshots)) {
                 if (($cloud.display_name -like "AWS*") -and ($account.AWSAccount -ne $null)) {
                     $snaps = @()
-                    $snaps = ./rsc --email $email --pwd $password --host $endpoint --account $($account.RSAccount) cm15 index $($cloud.links | Where-Object rel -eq volume_snapshots).href "filter[]=aws_owner_id==$($account.AWSAccount)" | ConvertFrom-Json
+                    $snaps = ./rsc --email $email --pwd $password --host $endpoint --account $($account.RSAccount) --timeout=300 cm15 index $($cloud.links | Where-Object rel -eq volume_snapshots).href "filter[]=aws_owner_id==$($account.AWSAccount)" | ConvertFrom-Json
                     $all_snaps += $snaps 
                     $modified_snaps += $snaps
                 } else {
                     $snaps = @()
-                    $snaps = ./rsc --email $email --pwd $password --host $endpoint --account $($account.RSAccount) cm15 index $($cloud.links | Where-Object rel -eq volume_snapshots).href | ConvertFrom-Json
+                    $snaps = ./rsc --email $email --pwd $password --host $endpoint --account $($account.RSAccount) --timeout=300 cm15 index $($cloud.links | Where-Object rel -eq volume_snapshots).href | ConvertFrom-Json
                     $all_snaps += $snaps 
                     $modified_snaps += $snaps
                 }
             }
         }
 
-        Write-Output "Total Snapshots Discovered: $($all_snaps.Count)"
+        Write-Output "$($account.RSAccount) - Total Snapshots Discovered: $($all_snaps.Count)"
 
         $target_snaps = @()
         foreach ($snap in $all_snaps) {
@@ -88,7 +96,7 @@ if (!([datetime]::TryParse($date,$null,"None",[ref]$date_result))) {
             }
         }
                                                   
-        Write-Output "Snapshots w/o an active Parent Volume: $($target_snaps.Count)"
+        Write-Output "$($account.RSAccount) - Snapshots w/o an active Parent Volume: $($target_snaps.Count)"
 
         $snaps_by_date = 0
         foreach ($snap in $modified_snaps) {
@@ -112,11 +120,11 @@ if (!([datetime]::TryParse($date,$null,"None",[ref]$date_result))) {
             }
         }
 
-        Write-Output "Additional snapshots that do not meet the date requirements: $snaps_by_date "
+        Write-Output "$($account.RSAccount) - Additional snapshots that do not meet the date requirements: $snaps_by_date "
         $all_snaps_object += $target_snaps
     }
 }
-
-$all_snaps_object | Export-Csv "./$($customer_name)_snapshots_$($csv_time).csv" -NoTypeInformation
-
+$csv = "$($customer_name)_snapshots_$($csv_time).csv"
+$all_snaps_object | Export-Csv "./$csv" -NoTypeInformation
+Write-Output "CSV File: $csv"
 Write-Output "End time: $(Get-Date)"
