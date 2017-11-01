@@ -75,7 +75,7 @@ param(
 
 #Complete
 
-function New-StorageAccount($resourceGroupName,$storageAccountName,$storageAccountType){
+function New-StorageAccount($resourceGroupName, $storageAccountName, $storageAccountType){
     $resourceGroup = Get-AzureRmResourceGroup -Name $resourceGroupName
     $storageAccount = New-AzureRmStorageAccount -ResourceGroupName $resourceGroupName -AccountName $storageAccountName -Location $resourceGroup.Location -Type $storageAccountType
     return $storageAccount
@@ -88,7 +88,7 @@ function Request-StorageAccountName($storageAccountPrefix){
     return $storageAccountName
 }
 
-function GetVMPowerState( $vmStatusObj ) {
+function Get-VMPowerState($vmStatusObj) {
     $retVal = "Off"
     foreach ( $curStatusObj in $vmStatusObj.Statuses ) {
         if ( $curStatusObj.Code -eq "PowerState/running" -and 
@@ -101,7 +101,7 @@ function GetVMPowerState( $vmStatusObj ) {
 }
 
 # mostly done so we don't have null object dereference errors 
-function GetVMAgentStatus( $newVMStatusObj ) {
+function Get-VMAgentStatus($newVMStatusObj) {
     $retVal = "Inactive"
     if ( $newVMStatusObj -and 
          $newVMStatusObj.VMAgent -and 
@@ -115,9 +115,9 @@ function GetVMAgentStatus( $newVMStatusObj ) {
 }
 
 # do a wildcard search on extension type, if found return true
-function Confirm-DiagnosticExtensionByTypeWithStatus ($vmStatus, $extensionType){
+function Confirm-DiagnosticExtensionByTypeWithStatus($vmStatus, $extensionType){
     $retVal = $False
-    if ( GetVMAgentStatus( $vmStatus ) -eq "Active" ) {
+    if ( (Get-VMAgentStatus -newVMStatusObj $vmStatus) -eq "Active" ) {
         foreach ( $curExtHandler in $vmStatus.VMAgent.ExtensionHandlers ) {
             if ( $curExtHandler.Type -like ("*" + $extensionType) ) {
                 $retVal = $True
@@ -507,7 +507,7 @@ if ($installExtensions) {
 if ($checkForExtensions){
     $extensionStateOutput = @()
     foreach ($account in $accounts) {
-        Select-AzureRmSubscription -SubscriptionId $account.subscriptionId
+        Select-AzureRmSubscription -SubscriptionId $account.subscriptionId | Out-Null
         $vms = Get-AzureRmVM -WarningAction Ignore
         foreach ($vm in $vms) {
             $vmOS = Determine-ProperOSTypeforVM -vm $vm
@@ -516,9 +516,9 @@ if ($checkForExtensions){
             } elseif ( $vmOS -eq "Linux" ) {
                 $extensionName = "LinuxDiagnostic"
             } 
-            $newVMStatusObj = get-azurermvm -name $vm.Name -ResourceGroupName $vm.ResourceGroupName -status
-            $currentPowerState = GetVMPowerState( $newVMStatusObj )
-            $vmAgentStatus = GetVMAgentStatus( $newVMStatusObj ) 
+            $newVMStatusObj = Get-AzureRmVM -name $vm.Name -ResourceGroupName $vm.ResourceGroupName -status
+            $currentPowerState = Get-VMPowerState -vmStatusObj $newVMStatusObj
+            $vmAgentStatus = Get-VMAgentStatus -newVMStatusObj $newVMStatusObj 
             $extensionState = ""
             if ( $extensionName -and $currentPowerState -eq "On" -and $vmAgentStatus -eq "Active" ) {
                 $extensionState = Confirm-DiagnosticExtensionByTypeWithStatus -vmStatus $newVMStatusObj -extensionType $extensionName
@@ -535,9 +535,8 @@ if ($checkForExtensions){
             $extensionStateOutput += $extensionObject
         }
     }
-    $extensionStateOutput | Export-Csv -Path ".\$companyName-Phase1-AllVMExtensionState.csv" -Force
-    $extensionStateOutput | Where-Object ExtensionInstalled -eq $False | Export-Csv -Path ".\$companyName-Phase1-VMsWithoutExtensions.csv" -Force
-    $extensionStateOutput
+    $extensionStateOutput | Export-Csv -Path ".\$companyName-Phase1-AllVMExtensionState.csv" -Force -NoTypeInformation
+    $extensionStateOutput | Where-Object ExtensionInstalled -eq $False | Export-Csv -Path ".\$companyName-Phase1-VMsWithoutExtensions.csv" -Force -NoTypeInformation
 }
 
 #Install Diagnostic Extensions
@@ -546,8 +545,14 @@ if ($installExtensions) {
     $vmsPoweredOff = @()
     if ($checkForExtensions) {
         foreach ($account in $accounts) {
-            Select-AzureRmSubscription -SubscriptionId $account.subscriptionId
-            $vms = import-csv ".\$companyName-Phase1-VMsWithoutExtensions.csv" | Where-Object SubscriptionId -eq $account.subscriptionId
+            Select-AzureRmSubscription -SubscriptionId $account.subscriptionId | Out-Null
+            if (Test-Path -Path ".\$companyName-Phase1-VMsWithoutExtensions.csv") {
+                $checkvms = Import-Csv -Path ".\$companyName-Phase1-VMsWithoutExtensions.csv" | Where-Object SubscriptionId -eq $account.subscriptionId
+            }
+            else {
+                Write-Error -Message "CSV Missing: .\$companyName-Phase1-VMsWithoutExtensions.csv"
+                EXIT 1
+            }
             if ($createStorageAccount) {
                 if (!$account.storageAccountName) {
                     $saName = Request-StorageAccountName -storageAccountPrefix "rsdiag"
@@ -576,14 +581,28 @@ if ($installExtensions) {
                 $saName = $account.storageAccountName
             }
             
-            foreach ($vm in $vms) {
-                if ((Get-AzureRmVM -Name $vm.Name -ResourceGroupName $vm.ResourceGroupName -Status -WarningAction Ignore).Statuses[1].DisplayStatus -eq "VM running") { 
-                    Enable-DiagnosticsExtension -storageAccountName $saName -vm $vm
-                    $vmObject = New-Object -TypeName psobject
-                    $vmObject | Add-Member -MemberType NoteProperty -Name VmName -Value $vm.Name 
-                    $vmObject | Add-Member -MemberType NoteProperty -Name ResourceGroupName -Value $vm.ResourceGroupName
-                    $vmObject | Add-Member -MemberType NoteProperty -Name SubscriptionId -Value $account.subscriptionId
-                    $vmsRequiringReboot += $vmObject
+            foreach ($vm in $checkvms) {
+                $vm = Get-AzureRmVM -Name $vm.Name -ResourceGroupName $vm.ResourceGroupName
+                $curVMStatus = $vm | Get-AzureRmVM -Status -WarningAction Ignore
+                $curVMPowerState = Get-VMPowerState -vmStatusObj $curVMStatus
+                $curVMAgentState = Get-VMAgentStatus -newVMStatusObj $curVMStatus
+                if ($curVMPowerState -eq "On" -and $curVMAgentState -eq "Active") {
+                    $vmOS = Determine-ProperOSTypeforVM -vm $vm
+                    if ( $vmOS -eq "Windows" ) {
+                        $extensionName = "IaaSDiagnostics"
+                    } elseif ( $vmOS -eq "Linux" ) {
+                        $extensionName = "LinuxDiagnostic"
+                    } 
+                    $extensionState = $null
+                    $extensionState = Confirm-DiagnosticExtensionByTypeWithStatus -vmStatus $curVMStatus -extensionType $extensionName
+                    if (!$extensionState) {
+                        Enable-DiagnosticsExtension -storageAccountName $saName -vm $vm
+                        $vmObject = New-Object -TypeName psobject
+                        $vmObject | Add-Member -MemberType NoteProperty -Name VmName -Value $vm.Name 
+                        $vmObject | Add-Member -MemberType NoteProperty -Name ResourceGroupName -Value $vm.ResourceGroupName
+                        $vmObject | Add-Member -MemberType NoteProperty -Name SubscriptionId -Value $account.subscriptionId
+                        $vmsRequiringReboot += $vmObject
+                    }
                 } else {
                     $vmObject = New-Object -TypeName psobject
                     $vmObject | Add-Member -MemberType NoteProperty -Name VmName -Value $vm.Name 
@@ -595,11 +614,11 @@ if ($installExtensions) {
         }
     } else {
         foreach ($account in $accounts) {
-            Select-AzureRmSubscription -SubscriptionId $account.subscriptionId
+            Select-AzureRmSubscription -SubscriptionId $account.subscriptionId | Out-Null
             $checkvms = Get-AzureRmVM -WarningAction Ignore
             if ($createStorageAccount) {
                 if (!$account.storageAccountName) {
-                    $saName = Request-StorageAccountName -storageAccountPrefix "RSDiag"
+                    $saName = Request-StorageAccountName -storageAccountPrefix "rsdiag"
                     $checkSA = Get-AzureRmStorageAccountNameAvailability -Name $saName
                     while (!$checkSA.NameAvailable) {
                         $saName = Request-StorageAccountName -storageAccountPrefix "rsdiag"
@@ -624,10 +643,11 @@ if ($installExtensions) {
             } else {
                 $saName = $account.storageAccountName
             }
+
             foreach ($vm in $checkvms) {
                 $curVMStatus = $vm | Get-AzureRmVM -Status -WarningAction Ignore
-                $curVMPowerState = GetVMPowerState($curVMStatus)
-                $curVMAgentState = GetVMAgentStatus($curVMStatus)
+                $curVMPowerState = Get-VMPowerState -vmStatusObj $curVMStatus
+                $curVMAgentState = Get-VMAgentStatus -newVMStatusObj $curVMStatus
                 if ($curVMPowerState -eq "On" -and $curVMAgentState -eq "Active") {
                     $vmOS = Determine-ProperOSTypeforVM -vm $vm
                     if ( $vmOS -eq "Windows" ) {
@@ -655,8 +675,8 @@ if ($installExtensions) {
             }
         }
     }
-    $vmsRequiringReboot | Export-Csv -Path ".\$companyName-Phase2-VMsRequiringReboot.csv" -Force
-    $vmsPoweredOff | Export-Csv -Path ".\$companyName-Phase2-VMsPoweredOff-ExtensionNotInstalled.csv" -Force
+    $vmsRequiringReboot | Export-Csv -Path ".\$companyName-Phase2-VMsRequiringReboot.csv" -Force -NoTypeInformation
+    $vmsPoweredOff | Export-Csv -Path ".\$companyName-Phase2-VMsPoweredOff-ExtensionNotInstalled.csv" -Force -NoTypeInformation
 }
 
 if ($retrieveMetrics) {
@@ -667,7 +687,7 @@ if ($retrieveMetrics) {
     if ($subscriptionId) {
         $accounts = @($subscriptionId)
     } elseif ($csvPath) {
-        $accounts = (Import-CSV $csvPath).subscriptionId
+        $accounts = (Import-CSV -Path $csvPath).subscriptionId
     } else {
         $accounts = (Get-AzureRmSubscription).SubscriptionId
     }
@@ -675,10 +695,10 @@ if ($retrieveMetrics) {
     $end = Get-Date
     $start = $end.AddDays(-$numberOfDays)
     $timegrain = "00:01:00" 
-    $timespan = "$(get-date $start -format d) - $(get-date $end -format d)"
+    $timespan = "$(Get-Date $start -format d) - $(Get-Date $end -format d)"
 
     foreach ($account in $accounts) {
-        Select-AzureRmSubscription -SubscriptionId $account -OutVariable "subscription"
+        Select-AzureRmSubscription -SubscriptionId $account -OutVariable "subscription" | Out-Null
         $vms = Get-AzureRmVM -WarningAction Ignore
         foreach ($vm in $vms) {
             $vmOS = Determine-ProperOSTypeforVM -vm $vm
@@ -782,5 +802,5 @@ if ($retrieveMetrics) {
             $results += $psObject
         } 
     }
-    $results | Export-Csv -Path ".\$companyName-Metrics.csv" -Force
+    $results | Export-Csv -Path ".\$companyName-Metrics.csv" -Force -NoTypeInformation
 }
