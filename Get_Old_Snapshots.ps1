@@ -88,7 +88,7 @@ if (!([datetime]::TryParse($date,$null,"None",[ref]$date_result))) {
                 $object | Add-Member -MemberType NoteProperty -Name "Resource_UID" -Value $snap.resource_uid 
                 $object | Add-Member -MemberType NoteProperty -Name "Size" -Value $snap.size 
                 $object | Add-Member -MemberType NoteProperty -Name "Description" -Value $snap.description 
-                $object | Add-Member -MemberType NoteProperty -Name "Created_At" -Value $snap.created_at 
+                $object | Add-Member -MemberType NoteProperty -Name "Started_At" -Value $snap.created_at 
                 $object | Add-Member -MemberType NoteProperty -Name "Updated_At" -Value $snap.updated_at 
                 $object | Add-Member -MemberType NoteProperty -Name "Cloud_Specific_Attributes" -Value $snap.cloud_specific_attributes 
                 $object | Add-Member -MemberType NoteProperty -Name "State" -Value $snap.state 
@@ -112,7 +112,7 @@ if (!([datetime]::TryParse($date,$null,"None",[ref]$date_result))) {
                 $object | Add-Member -MemberType NoteProperty -Name "Resource_UID" -Value $snap.resource_uid 
                 $object | Add-Member -MemberType NoteProperty -Name "Size" -Value $snap.size 
                 $object | Add-Member -MemberType NoteProperty -Name "Description" -Value $snap.description 
-                $object | Add-Member -MemberType NoteProperty -Name "Created_At" -Value $snap.created_at 
+                $object | Add-Member -MemberType NoteProperty -Name "Started_At" -Value $snap.created_at 
                 $object | Add-Member -MemberType NoteProperty -Name "Updated_At" -Value $snap.updated_at 
                 $object | Add-Member -MemberType NoteProperty -Name "Cloud_Specific_Attributes" -Value $snap.cloud_specific_attributes 
                 $object | Add-Member -MemberType NoteProperty -Name "State" -Value $snap.state 
