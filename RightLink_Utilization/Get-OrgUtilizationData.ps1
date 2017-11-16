@@ -129,6 +129,10 @@ foreach ($account in $accounts) {
                     # Get total memory from instance_type
                     $instanceTypeHref = $instance.links | Where-Object { $_.rel -eq "instance_type" } | Select-Object -ExpandProperty "href"
                     $instanceMemory = $instanceTypes | Where-Object { $_.href -eq $instanceTypeHref } | Select-Object -ExpandProperty "memory"
+                    $instanceTypeName = $instanceTypes | Where-Object { $_.href -eq $instanceTypeHref } | Select-Object -ExpandProperty "name"
+                    
+                    Write-Host "$account : $cloudName : $instanceUid : Instance Type: $instanceTypeName : Instance Memory: $instanceMemory"
+
                     if($instanceMemory -match '^\d*$') {
                         # Assume MB if no multiplier
                         $memBaseSize = $instanceMemory
