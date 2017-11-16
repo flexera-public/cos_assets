@@ -46,42 +46,52 @@ if($accounts.Count -eq 1) {
     }
 }
 
-# Use Optima to retrieve Cloud Account Name and Cloud Account ID
-$contentType = "application/json"
-$header = @{"X_API_VERSION"="1.5"}
-$uri = "https://$endpoint/api/session"
-$body = @{
-    "email"=$email
-    "password"=$password
-    "account_href"="/api/accounts/$($accounts[0])"
-} | ConvertTo-Json
+try {
+    # Use Optima to retrieve Cloud Account Name and Cloud Account ID
+    $contentType = "application/json"
+    $header = @{"X_API_VERSION"="1.5"}
+    $uri = "https://$endpoint/api/session"
+    $body = @{
+        "email"=$email
+        "password"=$password
+        "account_href"="/api/accounts/$($accounts[0])"
+    } | ConvertTo-Json
 
-$authResult = Invoke-WebRequest -Uri $uri -Method Post -Headers $header -ContentType $contentType -Body $body -SessionVariable authSession
-$webSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-$webSession.cookies = $authSession.cookies
+    $authResult = Invoke-WebRequest -Uri $uri -Method Post -Headers $header -ContentType $contentType -Body $body -SessionVariable authSession -ErrorAction SilentlyContinue
+    $webSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+    $webSession.cookies = $authSession.cookies
 
-$currentDate = Get-Date
-$optimaStartTime = "$($currentDate.Year)-$($currentDate.Month)-01T00:00:00+0000"
-$optimaEndTime = "$($currentDate.Year)-$(($currentDate.AddMonths(1)).Month)-01T00:00:00+0000"
+    $currentDate = Get-Date
+    $optimaStartTime = "$($currentDate.Year)-$($currentDate.Month)-01T00:00:00+0000"
+    $optimaEndTime = "$($currentDate.Year)-$(($currentDate.AddMonths(1)).Month)-01T00:00:00+0000"
 
-$optimaHeaders = @{
-    "X-API-Version"="1.0"
+    $optimaHeaders = @{
+        "X-API-Version"="1.0"
+    }
+    $optimaBodyPayload = @{
+        "start_time"=$optimaStartTime
+        "end_time"=$optimaEndTime
+        "group"=@(
+                @("cloud_vendor_account_id","cloud_vendor_account_name","account_id","account_name","cloud_vendor_name"),@("account_id")
+        )
+        "combined_cost_filters"=@(@{
+            "kind"= "ca#filter"
+            "type"= "combined_cost:account_id"
+            "value"= "$($accounts[0])"
+            "negate"= "false"
+        })
+    } | ConvertTo-Json
+    $optimaResult = Invoke-WebRequest -Uri "https://analytics.rightscale.com/api/combined_costs/actions/grouped_time_series" -WebSession $webSession -Method Post -Headers $optimaHeaders -ContentType $contentType -Body $optimaBodyPayload -ErrorAction SilentlyContinue
+    if($optimaResult) {
+        $optimaAccounts = ($optimaResult | ConvertFrom-Json).results.group
+    }
+    else {
+        $optimaAccounts = $null
+    }
 }
-$optimaBodyPayload = @{
-    "start_time"=$optimaStartTime
-    "end_time"=$optimaEndTime
-    "group"=@(
-            @("cloud_vendor_account_id","cloud_vendor_account_name","account_id","account_name","cloud_vendor_name"),@("account_id")
-    )
-    "combined_cost_filters"=@(@{
-        "kind"= "ca#filter"
-        "type"= "combined_cost:account_id"
-        "value"= "$($accounts[0])"
-        "negate"= "false"
-    })
-} | ConvertTo-Json
-$optimaResult = Invoke-WebRequest -Uri "https://analytics.rightscale.com/api/combined_costs/actions/grouped_time_series" -WebSession $webSession -Method Post -Headers $optimaHeaders -ContentType $contentType -Body $optimaBodyPayload
-$optimaAccounts = ($optimaResult | ConvertFrom-Json).results.group
+catch {
+    $optimaAccounts = $null
+}
 
 # Step through each account and collect monitoring metrics
 $instancesDetail = @()
@@ -231,18 +241,24 @@ foreach ($account in $accounts) {
                         }
                     }
                     
-                    # Gather cloud vendor data from Optima Result
-                    $cloudAccountId = ""
-                    $cloudAccountName = ""
-                    switch -wildcard ($cloudName) {
-                        "Azure*" {$cloud_vendor_name = "Microsoft Azure"}
-                        "Google*" {$cloud_vendor_name = "Google"}
-                        "AWS*" {$cloud_vendor_name = "Amazon Web Services"}
-                        default {$cloud_vendor_name = "Unknown"}
+                    if($optimaAccounts -ne $null) {
+                        # Gather cloud vendor data from Optima Result
+                        $cloudAccountId = ""
+                        $cloudAccountName = ""
+                        switch -wildcard ($cloudName) {
+                            "Azure*" {$cloud_vendor_name = "Microsoft Azure"}
+                            "Google*" {$cloud_vendor_name = "Google"}
+                            "AWS*" {$cloud_vendor_name = "Amazon Web Services"}
+                            default {$cloud_vendor_name = "Unknown"}
+                        }
+                        $optimaData = $optimaAccounts | Where-Object { $_.account_id -eq $account } | Where-Object { $_.cloud_vendor_name -eq $cloud_vendor_name }
+                        $cloudAccountId = $optimaData | Select-Object -First 1 -ExpandProperty cloud_vendor_account_id
+                        $cloudAccountName = $optimaData | Select-Object -First 1 -ExpandProperty cloud_vendor_account_name
                     }
-                    $optimaData = $optimaAccounts | Where-Object { $_.account_id -eq $account } | Where-Object { $_.cloud_vendor_name -eq $cloud_vendor_name }
-                    $cloudAccountId = $optimaData | Select-Object -First 1 -ExpandProperty cloud_vendor_account_id
-                    $cloudAccountName = $optimaData | Select-Object -First 1 -ExpandProperty cloud_vendor_account_name
+                    else {
+                        $cloudAccountId = ""
+                        $cloudAccountName = ""
+                    }
 
                     # Build the object to export to CSV
                     $object = New-Object -TypeName PSObject
