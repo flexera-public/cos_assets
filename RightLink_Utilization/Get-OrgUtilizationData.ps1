@@ -210,14 +210,12 @@ foreach ($account in $accounts) {
                         ## Calculate max used memory
                         $memMax = $memDataPoints | Sort-Object -Descending | Select-Object -First 1
                         if ($memMax -ne $null) {
-                            #$memMax = ((($memMax / "1$memMultiplier") / $memBaseSize) * 100) # Convert to perecentage
                             $memMax = "{00:N2}" -f ((($memMax / "1$memMultiplier") / $memBaseSize) * 100) # Convert to percentage and format the number
                         }
 
                         ## Calculate average used memory
                         $memAvg = $memDataPoints | Measure-Object -Average | Select-Object -ExpandProperty Average
                         if ($memAvg -ne $null) {
-                            #$memAvg = ((($memAvg / "1$memMultiplier") / $memBaseSize) * 100) # Convert to perecentage
                             $memAvg = "{00:N2}" -f ((($memAvg / "1$memMultiplier") / $memBaseSize) * 100) # Convert to percentage and format the number
                         }
                     }
