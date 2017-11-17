@@ -130,19 +130,29 @@ foreach ($account in $accounts) {
                     $instanceTypeHref = $instance.links | Where-Object { $_.rel -eq "instance_type" } | Select-Object -ExpandProperty "href"
                     $instanceMemory = $instanceTypes | Where-Object { $_.href -eq $instanceTypeHref } | Select-Object -ExpandProperty "memory"
                     $instanceTypeName = $instanceTypes | Where-Object { $_.href -eq $instanceTypeHref } | Select-Object -ExpandProperty "name"
-                    
-                    Write-Host "$account : $cloudName : $instanceUid : Instance Type: $instanceTypeName : Instance Memory: $instanceMemory"
 
-                    if($instanceMemory -match '^\d*$') {
-                        # Assume MB if no multiplier
-                        $memBaseSize = $instanceMemory
-                        $memMultiplier = "MB"
+                    if(-not($instanceTypeName)) {
+                        $instanceTypeName = "Unknown"
+                    }
+
+                    if($instanceMemory) {
+                        if($instanceMemory -match '^\d*$') {
+                            # Assume MB if no multiplier
+                            $memBaseSize = $instanceMemory
+                            $memMultiplier = "MB"
+                        }
+                        else {
+                            # Contains multiplier
+                            $memBaseSize = $instanceMemory.Split(' ')[0]
+                            $memMultiplier = $instanceMemory.Split(' ')[1]
+                        }
                     }
                     else {
-                        # Contains multiplier
-                        $memBaseSize = $instanceMemory.Split(' ')[0]
-                        $memMultiplier = $instanceMemory.Split(' ')[1]
-                    }
+                        $instanceMemory = "Unknown"
+                        $memMultiplier = ""
+                    }   
+
+                    Write-Host "$account : $cloudName : $instanceUid : Instance Type = $instanceTypeName : Instance Memory = $instanceMemory $memMultiplier"
 
                     $cpuMax = $null; $cpuAvg = $null; $cpuData = $null; $cpuDataPoints = $null; $cpuDataPointsTotal = $null; $loadMetric = $null;
                     # Test for cpu load metric - Don't trust results, ignoring for now.
@@ -199,28 +209,33 @@ foreach ($account in $accounts) {
                         }
                     }
 
-                    # Get memory:memory-used Monitoring Metrics - Memory is not monitored as a percentage but instead as total used
                     $memMax = $null; $memAvg = $null; $memData = $null; $memDataPoints = $null; $memDataPointsTotal = $null;
-                    $memData = ./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 data $instanceHref/monitoring_metrics/memory:memory-used/data "start=$startTime" "end=$endTime" --pp 2>$null | ConvertFrom-Json
-                    if ($memData) {
-                        Write-Host "$account : $cloudName : $instanceUid : Collected Memory metrics"
-                        $memDataPoints = $memData.variables_data.points | Where-Object { $_ } # Trim $null returns
-                        $memDataPointsTotal = $memDataPoints.count
-                        
-                        ## Calculate max used memory
-                        $memMax = $memDataPoints | Sort-Object -Descending | Select-Object -First 1
-                        if ($memMax -ne $null) {
-                            $memMax = "{00:N2}" -f ((($memMax / "1$memMultiplier") / $memBaseSize) * 100) # Convert to percentage and format the number
-                        }
+                    if($instanceMemory -ne "Unknown") {
+                        # Get memory:memory-used Monitoring Metrics - Memory is not monitored as a percentage but instead as total used
+                        $memData = ./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 data $instanceHref/monitoring_metrics/memory:memory-used/data "start=$startTime" "end=$endTime" --pp 2>$null | ConvertFrom-Json
+                        if ($memData) {
+                            Write-Host "$account : $cloudName : $instanceUid : Collected Memory metrics"
+                            $memDataPoints = $memData.variables_data.points | Where-Object { $_ } # Trim $null returns
+                            $memDataPointsTotal = $memDataPoints.count
+                            
+                            ## Calculate max used memory
+                            $memMax = $memDataPoints | Sort-Object -Descending | Select-Object -First 1
+                            if ($memMax -ne $null) {
+                                $memMax = "{00:N2}" -f ((($memMax / "1$memMultiplier") / $memBaseSize) * 100) # Convert to percentage and format the number
+                            }
 
-                        ## Calculate average used memory
-                        $memAvg = $memDataPoints | Measure-Object -Average | Select-Object -ExpandProperty Average
-                        if ($memAvg -ne $null) {
-                            $memAvg = "{00:N2}" -f ((($memAvg / "1$memMultiplier") / $memBaseSize) * 100) # Convert to percentage and format the number
+                            ## Calculate average used memory
+                            $memAvg = $memDataPoints | Measure-Object -Average | Select-Object -ExpandProperty Average
+                            if ($memAvg -ne $null) {
+                                $memAvg = "{00:N2}" -f ((($memAvg / "1$memMultiplier") / $memBaseSize) * 100) # Convert to percentage and format the number
+                            }
+                        }
+                        else {
+                            Write-Host "$account : $cloudName : $instanceUid : Unable to retrieve memory monitoring data"
                         }
                     }
                     else {
-                        Write-Host "$account : $cloudName : $instanceUid : Unable to retrieve memory monitoring data"
+                        Write-Host "$account : $cloudName : $instanceUid : Unable to calculate memory utilization"
                     }
 
                     $cpuTimeFrame = $null; $memTimeFrame = $null; $metricTimespan = 0;
@@ -271,6 +286,7 @@ foreach ($account in $accounts) {
                     $object | Add-Member -MemberType NoteProperty -Name "Cloud" -Value $cloudName
                     $object | Add-Member -MemberType NoteProperty -Name "Instance_Name" -Value $instance.name
                     $object | Add-Member -MemberType NoteProperty -Name "Resource_UID" -Value $instanceUid
+                    $object | Add-Member -MemberType NoteProperty -Name "Instance_Type" -Value $instanceTypeName
                     $object | Add-Member -MemberType NoteProperty -Name "CPU_Max(%)" -Value $cpuMax
                     $object | Add-Member -MemberType NoteProperty -Name "CPU_Avg(%)" -Value $cpuAvg
                     $object | Add-Member -MemberType NoteProperty -Name "Memory_Max(%)"-Value $memMax
