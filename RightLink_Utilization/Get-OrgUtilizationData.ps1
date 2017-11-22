@@ -2,7 +2,7 @@
 # The output of this script will be a CSV created in the working directory
 # If a parent account/org account number is provided, it will attempt to gather metrics from all child accounts.
 # Requires enterprise_manager on the parent and observer on the child accounts
-# Beginning and end time frame can be enterd as just dates, which will set a time of midnight, or fully qualified dates and times.
+# Beginning and end time frame can be entered as just dates, which will set a time of midnight, or fully qualified dates and times.
 
 $customer_name = Read-Host "Enter Customer Name" # Used for name of CSV
 $email = Read-Host "Enter RS email address" # email address associated with RS user
@@ -61,8 +61,6 @@ try {
     $authResult = Invoke-WebRequest -Uri $uri -Method Post -Headers $header -ContentType $contentType -Body $body -SessionVariable authSession -ErrorAction SilentlyContinue
     $webSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
     $webSession.cookies = $authSession.cookies
-
-    
 
     try {
         #Optima Accounts
