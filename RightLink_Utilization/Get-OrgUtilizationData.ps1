@@ -9,20 +9,21 @@ $email = Read-Host "Enter RS email address" # email address associated with RS u
 $password = Read-Host "Enter RS Password" # RS password
 $endpoint = Read-Host "Enter RS API endpoint (us-3.rightscale.com -or- us-4.rightscale.com)" # us-3.rightscale.com -or- us-4.rightscale.com
 $accounts = Read-Host "Enter a comma-separated list of RS Account Number(s) or the Parent Account number. Example: 1234,4321,1111" # RS account numbers
-$startTime = Read-host "Enter beginning of time frame to collect from in MM/DD/YYYY HH:MM:SS"
-$endTime = Read-Host "Enter end of time frame to collect from in MM/DD/YYYY HH:MM:SS or press enter for now"
+$initialStartTime = Read-host "Enter beginning of time frame to collect from in MM/DD/YYYY HH:MM:SS"
+$initialEndTime = Read-Host "Enter end of time frame to collect from in MM/DD/YYYY HH:MM:SS or press enter for now"
 
 # The Monitoring metrics data call expects a start and end time in the form of seconds from now (0)
 # Example: To collect metrics for the last 5 minutes, you would specify "start = -300" and "end = 0"
 # Need to convert time and date inputs into seconds from now
 $currentTime = Get-Date
 Write-Output "Script Start Time: $currentTime"
-$startTime = "-" + (($currentTime) - (Get-Date $startTime) | Select-Object -ExpandProperty TotalSeconds).ToString().Split('.')[0]
-if(($endTime -eq $null) -or ($endTime -eq "") -or ($endTime -eq 0) -or !($endTime)) {
+$startTime = "-" + (($currentTime) - (Get-Date $initialStartTime) | Select-Object -ExpandProperty TotalSeconds).ToString().Split('.')[0]
+if(($initialEndTime -eq $null) -or ($initialEndTime -eq "") -or ($initialEndTime -eq 0) -or !($initialEndTime)) {
+    $initialEndTime = Get-Date
     $endTime = 0
 }
 else {
-    $endTime = "-" + (($currentTime) - (Get-Date $endTime) | Select-Object -ExpandProperty TotalSeconds).ToString().Split('.')[0]
+    $endTime = "-" + (($currentTime) - (Get-Date $initialEndTime) | Select-Object -ExpandProperty TotalSeconds).ToString().Split('.')[0]
 }
 
 Write-Host "Collection Start (seconds): $startTime"
@@ -46,51 +47,97 @@ if($accounts.Count -eq 1) {
     }
 }
 
+# Use Optima to retrieve Cloud Account Name and Cloud Account ID
 try {
-    # Use Optima to retrieve Cloud Account Name and Cloud Account ID
     $contentType = "application/json"
     $header = @{"X_API_VERSION"="1.5"}
     $uri = "https://$endpoint/api/session"
     $body = @{
         "email"=$email
         "password"=$password
-        "account_href"="/api/accounts/$($accounts[0])"
+        "account_href"="/api/accounts/$($accounts | Select-Object -First 1)"
     } | ConvertTo-Json
 
     $authResult = Invoke-WebRequest -Uri $uri -Method Post -Headers $header -ContentType $contentType -Body $body -SessionVariable authSession -ErrorAction SilentlyContinue
     $webSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
     $webSession.cookies = $authSession.cookies
 
-    $currentDate = Get-Date
-    $optimaStartTime = "$($currentDate.Year)-$($currentDate.Month)-01T00:00:00+0000"
-    $optimaEndTime = "$($currentDate.Year)-$(($currentDate.AddMonths(1)).Month)-01T00:00:00+0000"
+    
 
-    $optimaHeaders = @{
-        "X-API-Version"="1.0"
+    try {
+        #Optima Accounts
+        Write-Host "Gathering account detail from Optima..."
+        $currentDate = Get-Date
+        $optimaStartTime = "$($currentDate.Year)-$($currentDate.Month)-01T00:00:00+0000"
+        $optimaEndTime = "$($currentDate.Year)-$(($currentDate.AddMonths(1)).Month)-01T00:00:00+0000"
+    
+        $optimaHeaders = @{
+            "X-API-Version"="1.0"
+        }
+
+        $optimaBodyPayload = @{
+            "start_time"=$optimaStartTime
+            "end_time"=$optimaEndTime
+            "group"=@(
+                    @("cloud_vendor_account_id","cloud_vendor_account_name","account_id","account_name","cloud_vendor_name"),@("account_id")
+            )
+            "combined_cost_filters"=@(@{
+                "kind"= "ca#filter"
+                "type"= "combined_cost:account_id"
+                "value"= "$($accounts[0])"
+                "negate"= "false"
+            })
+        } | ConvertTo-Json
+        $optimaAccountsResult = Invoke-WebRequest -Uri "https://analytics.rightscale.com/api/combined_costs/actions/grouped_time_series" -WebSession $webSession -Method Post -Headers $optimaHeaders -ContentType $contentType -Body $optimaBodyPayload -ErrorAction SilentlyContinue
+        if($optimaAccountsResult) {
+            Write-Host "Successfully retrieved Account details from Optima!"
+            $optimaAccounts = ($optimaAccountsResult | ConvertFrom-Json).results.group
+        }
+        else {
+            Write-Host "No access to Optima(Combined Costs). Continuing..."
+            $optimaAccounts = $null
+        }
     }
-    $optimaBodyPayload = @{
-        "start_time"=$optimaStartTime
-        "end_time"=$optimaEndTime
-        "group"=@(
-                @("cloud_vendor_account_id","cloud_vendor_account_name","account_id","account_name","cloud_vendor_name"),@("account_id")
-        )
-        "combined_cost_filters"=@(@{
-            "kind"= "ca#filter"
-            "type"= "combined_cost:account_id"
-            "value"= "$($accounts[0])"
-            "negate"= "false"
-        })
-    } | ConvertTo-Json
-    $optimaResult = Invoke-WebRequest -Uri "https://analytics.rightscale.com/api/combined_costs/actions/grouped_time_series" -WebSession $webSession -Method Post -Headers $optimaHeaders -ContentType $contentType -Body $optimaBodyPayload -ErrorAction SilentlyContinue
-    if($optimaResult) {
-        $optimaAccounts = ($optimaResult | ConvertFrom-Json).results.group
-    }
-    else {
+    catch {
+        Write-Host "No access to Optima. Continuing..."
         $optimaAccounts = $null
+    }
+
+    try {
+        # Optima Instances
+        Write-Host "Gathering instances detail from Optima..."
+        $optimaStartTime = Get-Date -Date $initialStartTime -Format yyyy-MM-ddThh:mm:ss
+        $optimaEndTime = Get-Date -Date $initialEndTime -Format yyyy-MM-ddThh:mm:ss
+        
+        $optimaHeaders = @{
+            "X-API-Version"="1.0"
+        }
+
+        $optimaBodyPayload = @{
+            "start_time"=$optimaStartTime
+            "end_time"=$optimaEndTime
+        } | ConvertTo-Json
+
+        $optimaInstancesResult = Invoke-WebRequest -Uri "https://analytics.rightscale.com/api/instances" -WebSession $webSession -Method Post -Headers $optimaHeaders -ContentType $contentType -Body $optimaBodyPayload -ErrorAction SilentlyContinue
+        
+        if($optimaInstancesResult) {
+            Write-Host "Successfully retrieved Instances detail from Optima!"
+            $optimaInstances = ($optimaInstancesResult | ConvertFrom-Json)
+        }
+        else {
+            Write-Host "No access to Optima(Instances). Continuing..."
+            $optimaInstances = $null
+        }
+    }
+    catch {
+        Write-Host "No access to Optima(Instances). Continuing..."
+        $optimaInstances = $null
     }
 }
 catch {
+    Write-Host "No access to Optima. Continuing..."
     $optimaAccounts = $null
+    $optimaInstances = $null
 }
 
 # Step through each account and collect monitoring metrics
@@ -131,7 +178,20 @@ foreach ($account in $accounts) {
                     $instanceMemory = $instanceTypes | Where-Object { $_.href -eq $instanceTypeHref } | Select-Object -ExpandProperty "memory"
                     $instanceTypeName = $instanceTypes | Where-Object { $_.href -eq $instanceTypeHref } | Select-Object -ExpandProperty "name"
 
-                    if(-not($instanceTypeName)) {
+                    if(-not($instanceTypeName) -and $optimaInstances) {
+                        #Instance type is unknown in CM, try Optima
+                        Write-Host "$account : $cloudName : $instanceUid : Instance Type 'unknown' in CM! Trying Optima..."
+                        $instanceTypeName = $optimaInstances | Where-Object { $_.instance_uid -eq $instanceUid } | Select-Object -ExpandProperty "instance_type_name"
+                        if($instanceTypeName) {
+                            $instanceMemory = $instanceTypes | Where-Object { $_.name -eq $instanceTypeName } | Select-Object -ExpandProperty "memory"
+                        }
+                        else {
+                            Write-Host "$account : $cloudName : $instanceUid : Unable to resolve Instance Type"
+                            $instanceTypeName = "Unknown"
+                        }
+                    }
+                    else {
+                        Write-Host "$account : $cloudName : $instanceUid : Unable to resolve Instance Type"
                         $instanceTypeName = "Unknown"
                     }
 
