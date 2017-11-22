@@ -46,42 +46,52 @@ if($accounts.Count -eq 1) {
     }
 }
 
-# Use Optima to retrieve Cloud Account Name and Cloud Account ID
-$contentType = "application/json"
-$header = @{"X_API_VERSION"="1.5"}
-$uri = "https://$endpoint/api/session"
-$body = @{
-    "email"=$email
-    "password"=$password
-    "account_href"="/api/accounts/$($accounts[0])"
-} | ConvertTo-Json
+try {
+    # Use Optima to retrieve Cloud Account Name and Cloud Account ID
+    $contentType = "application/json"
+    $header = @{"X_API_VERSION"="1.5"}
+    $uri = "https://$endpoint/api/session"
+    $body = @{
+        "email"=$email
+        "password"=$password
+        "account_href"="/api/accounts/$($accounts[0])"
+    } | ConvertTo-Json
 
-$authResult = Invoke-WebRequest -Uri $uri -Method Post -Headers $header -ContentType $contentType -Body $body -SessionVariable authSession
-$webSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-$webSession.cookies = $authSession.cookies
+    $authResult = Invoke-WebRequest -Uri $uri -Method Post -Headers $header -ContentType $contentType -Body $body -SessionVariable authSession -ErrorAction SilentlyContinue
+    $webSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+    $webSession.cookies = $authSession.cookies
 
-$currentDate = Get-Date
-$optimaStartTime = "$($currentDate.Year)-$($currentDate.Month)-01T00:00:00+0000"
-$optimaEndTime = "$($currentDate.Year)-$(($currentDate.AddMonths(1)).Month)-01T00:00:00+0000"
+    $currentDate = Get-Date
+    $optimaStartTime = "$($currentDate.Year)-$($currentDate.Month)-01T00:00:00+0000"
+    $optimaEndTime = "$($currentDate.Year)-$(($currentDate.AddMonths(1)).Month)-01T00:00:00+0000"
 
-$optimaHeaders = @{
-    "X-API-Version"="1.0"
+    $optimaHeaders = @{
+        "X-API-Version"="1.0"
+    }
+    $optimaBodyPayload = @{
+        "start_time"=$optimaStartTime
+        "end_time"=$optimaEndTime
+        "group"=@(
+                @("cloud_vendor_account_id","cloud_vendor_account_name","account_id","account_name","cloud_vendor_name"),@("account_id")
+        )
+        "combined_cost_filters"=@(@{
+            "kind"= "ca#filter"
+            "type"= "combined_cost:account_id"
+            "value"= "$($accounts[0])"
+            "negate"= "false"
+        })
+    } | ConvertTo-Json
+    $optimaResult = Invoke-WebRequest -Uri "https://analytics.rightscale.com/api/combined_costs/actions/grouped_time_series" -WebSession $webSession -Method Post -Headers $optimaHeaders -ContentType $contentType -Body $optimaBodyPayload -ErrorAction SilentlyContinue
+    if($optimaResult) {
+        $optimaAccounts = ($optimaResult | ConvertFrom-Json).results.group
+    }
+    else {
+        $optimaAccounts = $null
+    }
 }
-$optimaBodyPayload = @{
-    "start_time"=$optimaStartTime
-    "end_time"=$optimaEndTime
-    "group"=@(
-            @("cloud_vendor_account_id","cloud_vendor_account_name","account_id","account_name","cloud_vendor_name"),@("account_id")
-    )
-    "combined_cost_filters"=@(@{
-        "kind"= "ca#filter"
-        "type"= "combined_cost:account_id"
-        "value"= "$($accounts[0])"
-        "negate"= "false"
-    })
-} | ConvertTo-Json
-$optimaResult = Invoke-WebRequest -Uri "https://analytics.rightscale.com/api/combined_costs/actions/grouped_time_series" -WebSession $webSession -Method Post -Headers $optimaHeaders -ContentType $contentType -Body $optimaBodyPayload
-$optimaAccounts = ($optimaResult | ConvertFrom-Json).results.group
+catch {
+    $optimaAccounts = $null
+}
 
 # Step through each account and collect monitoring metrics
 $instancesDetail = @()
@@ -119,16 +129,30 @@ foreach ($account in $accounts) {
                     # Get total memory from instance_type
                     $instanceTypeHref = $instance.links | Where-Object { $_.rel -eq "instance_type" } | Select-Object -ExpandProperty "href"
                     $instanceMemory = $instanceTypes | Where-Object { $_.href -eq $instanceTypeHref } | Select-Object -ExpandProperty "memory"
-                    if($instanceMemory -match '^\d*$') {
-                        # Assume MB if no multiplier
-                        $memBaseSize = $instanceMemory
-                        $memMultiplier = "MB"
+                    $instanceTypeName = $instanceTypes | Where-Object { $_.href -eq $instanceTypeHref } | Select-Object -ExpandProperty "name"
+
+                    if(-not($instanceTypeName)) {
+                        $instanceTypeName = "Unknown"
+                    }
+
+                    if($instanceMemory) {
+                        if($instanceMemory -match '^\d*$') {
+                            # Assume MB if no multiplier
+                            $memBaseSize = $instanceMemory
+                            $memMultiplier = "MB"
+                        }
+                        else {
+                            # Contains multiplier
+                            $memBaseSize = $instanceMemory.Split(' ')[0]
+                            $memMultiplier = $instanceMemory.Split(' ')[1]
+                        }
                     }
                     else {
-                        # Contains multiplier
-                        $memBaseSize = $instanceMemory.Split(' ')[0]
-                        $memMultiplier = $instanceMemory.Split(' ')[1]
-                    }
+                        $instanceMemory = "Unknown"
+                        $memMultiplier = ""
+                    }   
+
+                    Write-Host "$account : $cloudName : $instanceUid : Instance Type = $instanceTypeName : Instance Memory = $instanceMemory $memMultiplier"
 
                     $cpuMax = $null; $cpuAvg = $null; $cpuData = $null; $cpuDataPoints = $null; $cpuDataPointsTotal = $null; $loadMetric = $null;
                     # Test for cpu load metric - Don't trust results, ignoring for now.
@@ -185,30 +209,33 @@ foreach ($account in $accounts) {
                         }
                     }
 
-                    # Get memory:memory-used Monitoring Metrics - Memory is not monitored as a percentage but instead as total used
                     $memMax = $null; $memAvg = $null; $memData = $null; $memDataPoints = $null; $memDataPointsTotal = $null;
-                    $memData = ./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 data $instanceHref/monitoring_metrics/memory:memory-used/data "start=$startTime" "end=$endTime" --pp 2>$null | ConvertFrom-Json
-                    if ($memData) {
-                        Write-Host "$account : $cloudName : $instanceUid : Collected Memory metrics"
-                        $memDataPoints = $memData.variables_data.points | Where-Object { $_ } # Trim $null returns
-                        $memDataPointsTotal = $memDataPoints.count
-                        
-                        ## Calculate max used memory
-                        $memMax = $memDataPoints | Sort-Object -Descending | Select-Object -First 1
-                        if ($memMax -ne $null) {
-                            #$memMax = ((($memMax / "1$memMultiplier") / $memBaseSize) * 100) # Convert to perecentage
-                            $memMax = "{00:N2}" -f ((($memMax / "1$memMultiplier") / $memBaseSize) * 100) # Convert to percentage and format the number
-                        }
+                    if($instanceMemory -ne "Unknown") {
+                        # Get memory:memory-used Monitoring Metrics - Memory is not monitored as a percentage but instead as total used
+                        $memData = ./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 data $instanceHref/monitoring_metrics/memory:memory-used/data "start=$startTime" "end=$endTime" --pp 2>$null | ConvertFrom-Json
+                        if ($memData) {
+                            Write-Host "$account : $cloudName : $instanceUid : Collected Memory metrics"
+                            $memDataPoints = $memData.variables_data.points | Where-Object { $_ } # Trim $null returns
+                            $memDataPointsTotal = $memDataPoints.count
+                            
+                            ## Calculate max used memory
+                            $memMax = $memDataPoints | Sort-Object -Descending | Select-Object -First 1
+                            if ($memMax -ne $null) {
+                                $memMax = "{00:N2}" -f ((($memMax / "1$memMultiplier") / $memBaseSize) * 100) # Convert to percentage and format the number
+                            }
 
-                        ## Calculate average used memory
-                        $memAvg = $memDataPoints | Measure-Object -Average | Select-Object -ExpandProperty Average
-                        if ($memAvg -ne $null) {
-                            #$memAvg = ((($memAvg / "1$memMultiplier") / $memBaseSize) * 100) # Convert to perecentage
-                            $memAvg = "{00:N2}" -f ((($memAvg / "1$memMultiplier") / $memBaseSize) * 100) # Convert to percentage and format the number
+                            ## Calculate average used memory
+                            $memAvg = $memDataPoints | Measure-Object -Average | Select-Object -ExpandProperty Average
+                            if ($memAvg -ne $null) {
+                                $memAvg = "{00:N2}" -f ((($memAvg / "1$memMultiplier") / $memBaseSize) * 100) # Convert to percentage and format the number
+                            }
+                        }
+                        else {
+                            Write-Host "$account : $cloudName : $instanceUid : Unable to retrieve memory monitoring data"
                         }
                     }
                     else {
-                        Write-Host "$account : $cloudName : $instanceUid : Unable to retrieve memory monitoring data"
+                        Write-Host "$account : $cloudName : $instanceUid : Unable to calculate memory utilization"
                     }
 
                     $cpuTimeFrame = $null; $memTimeFrame = $null; $metricTimespan = 0;
@@ -231,18 +258,24 @@ foreach ($account in $accounts) {
                         }
                     }
                     
-                    # Gather cloud vendor data from Optima Result
-                    $cloudAccountId = ""
-                    $cloudAccountName = ""
-                    switch -wildcard ($cloudName) {
-                        "Azure*" {$cloud_vendor_name = "Microsoft Azure"}
-                        "Google*" {$cloud_vendor_name = "Google"}
-                        "AWS*" {$cloud_vendor_name = "Amazon Web Services"}
-                        default {$cloud_vendor_name = "Unknown"}
+                    if($optimaAccounts -ne $null) {
+                        # Gather cloud vendor data from Optima Result
+                        $cloudAccountId = ""
+                        $cloudAccountName = ""
+                        switch -wildcard ($cloudName) {
+                            "Azure*" {$cloud_vendor_name = "Microsoft Azure"}
+                            "Google*" {$cloud_vendor_name = "Google"}
+                            "AWS*" {$cloud_vendor_name = "Amazon Web Services"}
+                            default {$cloud_vendor_name = "Unknown"}
+                        }
+                        $optimaData = $optimaAccounts | Where-Object { $_.account_id -eq $account } | Where-Object { $_.cloud_vendor_name -eq $cloud_vendor_name }
+                        $cloudAccountId = $optimaData | Select-Object -First 1 -ExpandProperty cloud_vendor_account_id
+                        $cloudAccountName = $optimaData | Select-Object -First 1 -ExpandProperty cloud_vendor_account_name
                     }
-                    $optimaData = $optimaAccounts | Where-Object { $_.account_id -eq $account } | Where-Object { $_.cloud_vendor_name -eq $cloud_vendor_name }
-                    $cloudAccountId = $optimaData | Select-Object -First 1 -ExpandProperty cloud_vendor_account_id
-                    $cloudAccountName = $optimaData | Select-Object -First 1 -ExpandProperty cloud_vendor_account_name
+                    else {
+                        $cloudAccountId = ""
+                        $cloudAccountName = ""
+                    }
 
                     # Build the object to export to CSV
                     $object = New-Object -TypeName PSObject
@@ -253,6 +286,7 @@ foreach ($account in $accounts) {
                     $object | Add-Member -MemberType NoteProperty -Name "Cloud" -Value $cloudName
                     $object | Add-Member -MemberType NoteProperty -Name "Instance_Name" -Value $instance.name
                     $object | Add-Member -MemberType NoteProperty -Name "Resource_UID" -Value $instanceUid
+                    $object | Add-Member -MemberType NoteProperty -Name "Instance_Type" -Value $instanceTypeName
                     $object | Add-Member -MemberType NoteProperty -Name "CPU_Max(%)" -Value $cpuMax
                     $object | Add-Member -MemberType NoteProperty -Name "CPU_Avg(%)" -Value $cpuAvg
                     $object | Add-Member -MemberType NoteProperty -Name "Memory_Max(%)"-Value $memMax
