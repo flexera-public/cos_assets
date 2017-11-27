@@ -350,9 +350,9 @@ foreach ($account in $accounts) {
                             "AWS*" {$cloud_vendor_name = "Amazon Web Services"}
                             default {$cloud_vendor_name = "Unknown"}
                         }
-                        $optimaData = $optimaAccounts | Where-Object { $_.account_id -eq $account } | Where-Object { $_.cloud_vendor_name -eq $cloud_vendor_name }
-                        $cloudAccountId = $optimaData | Select-Object -First 1 -ExpandProperty cloud_vendor_account_id
-                        $cloudAccountName = $optimaData | Select-Object -First 1 -ExpandProperty cloud_vendor_account_name
+                        $optimaData = $optimaAccounts | Where-Object { $_.account_id -eq $account } | Where-Object { $_.cloud_vendor_name -eq $cloud_vendor_name } 
+                        $cloudAccountId = $optimaData | Where-Object { $_.cloud_vendor_account_id -ne "" } | Where-Object { $_.cloud_vendor_account_name -ne "" } | Select-Object -First 1 -ExpandProperty cloud_vendor_account_id
+                        $cloudAccountName = $optimaData | Where-Object { $_.cloud_vendor_account_id -ne "" } | Where-Object { $_.cloud_vendor_account_name -ne "" } | Select-Object -First 1 -ExpandProperty cloud_vendor_account_name
                     }
                     else {
                         $cloudAccountId = ""
