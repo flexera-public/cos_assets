@@ -2,27 +2,28 @@
 # The output of this script will be a CSV created in the working directory
 # If a parent account/org account number is provided, it will attempt to gather metrics from all child accounts.
 # Requires enterprise_manager on the parent and observer on the child accounts
-# Beginning and end time frame can be enterd as just dates, which will set a time of midnight, or fully qualified dates and times.
+# Beginning and end time frame can be entered as just dates, which will set a time of midnight, or fully qualified dates and times.
 
 $customer_name = Read-Host "Enter Customer Name" # Used for name of CSV
 $email = Read-Host "Enter RS email address" # email address associated with RS user
 $password = Read-Host "Enter RS Password" # RS password
 $endpoint = Read-Host "Enter RS API endpoint (us-3.rightscale.com -or- us-4.rightscale.com)" # us-3.rightscale.com -or- us-4.rightscale.com
 $accounts = Read-Host "Enter a comma-separated list of RS Account Number(s) or the Parent Account number. Example: 1234,4321,1111" # RS account numbers
-$startTime = Read-host "Enter beginning of time frame to collect from in MM/DD/YYYY HH:MM:SS"
-$endTime = Read-Host "Enter end of time frame to collect from in MM/DD/YYYY HH:MM:SS or press enter for now"
+$initialStartTime = Read-host "Enter beginning of time frame to collect from in MM/DD/YYYY HH:MM:SS"
+$initialEndTime = Read-Host "Enter end of time frame to collect from in MM/DD/YYYY HH:MM:SS or press enter for now"
 
 # The Monitoring metrics data call expects a start and end time in the form of seconds from now (0)
 # Example: To collect metrics for the last 5 minutes, you would specify "start = -300" and "end = 0"
 # Need to convert time and date inputs into seconds from now
 $currentTime = Get-Date
 Write-Output "Script Start Time: $currentTime"
-$startTime = "-" + (($currentTime) - (Get-Date $startTime) | Select-Object -ExpandProperty TotalSeconds).ToString().Split('.')[0]
-if(($endTime -eq $null) -or ($endTime -eq "") -or ($endTime -eq 0) -or !($endTime)) {
+$startTime = "-" + (($currentTime) - (Get-Date $initialStartTime) | Select-Object -ExpandProperty TotalSeconds).ToString().Split('.')[0]
+if(($initialEndTime -eq $null) -or ($initialEndTime -eq "") -or ($initialEndTime -eq 0) -or !($initialEndTime)) {
+    $initialEndTime = Get-Date
     $endTime = 0
 }
 else {
-    $endTime = "-" + (($currentTime) - (Get-Date $endTime) | Select-Object -ExpandProperty TotalSeconds).ToString().Split('.')[0]
+    $endTime = "-" + (($currentTime) - (Get-Date $initialEndTime) | Select-Object -ExpandProperty TotalSeconds).ToString().Split('.')[0]
 }
 
 Write-Host "Collection Start (seconds): $startTime"
@@ -46,51 +47,117 @@ if($accounts.Count -eq 1) {
     }
 }
 
+# Use Optima to retrieve Cloud Account Name and Cloud Account ID
 try {
-    # Use Optima to retrieve Cloud Account Name and Cloud Account ID
     $contentType = "application/json"
     $header = @{"X_API_VERSION"="1.5"}
     $uri = "https://$endpoint/api/session"
     $body = @{
         "email"=$email
         "password"=$password
-        "account_href"="/api/accounts/$($accounts[0])"
+        "account_href"="/api/accounts/$($accounts | Select-Object -First 1)"
     } | ConvertTo-Json
 
     $authResult = Invoke-WebRequest -Uri $uri -Method Post -Headers $header -ContentType $contentType -Body $body -SessionVariable authSession -ErrorAction SilentlyContinue
     $webSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
     $webSession.cookies = $authSession.cookies
 
-    $currentDate = Get-Date
-    $optimaStartTime = "$($currentDate.Year)-$($currentDate.Month)-01T00:00:00+0000"
-    $optimaEndTime = "$($currentDate.Year)-$(($currentDate.AddMonths(1)).Month)-01T00:00:00+0000"
+    try {
+        #Optima Accounts
+        Write-Host "Gathering account detail from Optima..."
+        $currentDate = Get-Date
+        $optimaStartTime = "$($currentDate.Year)-$($currentDate.Month)-01T00:00:00+0000"
+        $optimaEndTime = "$($currentDate.Year)-$(($currentDate.AddMonths(1)).Month)-01T00:00:00+0000"
+    
+        $optimaHeaders = @{
+            "X-API-Version"="1.0"
+        }
 
-    $optimaHeaders = @{
-        "X-API-Version"="1.0"
+        $accountPayload = @()
+        foreach ($account in $accounts) {
+            $object = New-Object -TypeName PSObject
+            $object | Add-Member -MemberType NoteProperty -Name kind -Value "ca#filter"
+            $object | Add-Member -MemberType NoteProperty -Name type -Value "combined_cost:account_id"
+            $object | Add-Member -MemberType NoteProperty -Name value -Value $account
+            $object | Add-Member -MemberType NoteProperty -Name negate -Value "false"
+            $accountPayload += $object
+        }
+
+        $optimaBodyPayload = @{
+            "start_time"=$optimaStartTime
+            "end_time"=$optimaEndTime
+            "group"=@(
+                    @("cloud_vendor_account_id","cloud_vendor_account_name","account_id","account_name","cloud_vendor_name"),@("account_id")
+            )
+            "combined_cost_filters"=@(
+                $accountPayload
+            )
+        } | ConvertTo-Json
+
+        $optimaAccountsResult = Invoke-WebRequest -Uri "https://analytics.rightscale.com/api/combined_costs/actions/grouped_time_series" -WebSession $webSession -Method Post -Headers $optimaHeaders -ContentType $contentType -Body $optimaBodyPayload -ErrorAction SilentlyContinue
+        
+        if($optimaAccountsResult) {
+            Write-Host "Successfully retrieved Account details from Optima!"
+            $optimaAccounts = ($optimaAccountsResult | ConvertFrom-Json).results.group
+        }
+        else {
+            Write-Host "No access to Optima(Combined Costs). Continuing..."
+            $optimaAccounts = $null
+        }
     }
-    $optimaBodyPayload = @{
-        "start_time"=$optimaStartTime
-        "end_time"=$optimaEndTime
-        "group"=@(
-                @("cloud_vendor_account_id","cloud_vendor_account_name","account_id","account_name","cloud_vendor_name"),@("account_id")
-        )
-        "combined_cost_filters"=@(@{
-            "kind"= "ca#filter"
-            "type"= "combined_cost:account_id"
-            "value"= "$($accounts[0])"
-            "negate"= "false"
-        })
-    } | ConvertTo-Json
-    $optimaResult = Invoke-WebRequest -Uri "https://analytics.rightscale.com/api/combined_costs/actions/grouped_time_series" -WebSession $webSession -Method Post -Headers $optimaHeaders -ContentType $contentType -Body $optimaBodyPayload -ErrorAction SilentlyContinue
-    if($optimaResult) {
-        $optimaAccounts = ($optimaResult | ConvertFrom-Json).results.group
-    }
-    else {
+    catch {
+        Write-Host "No access to Optima. Continuing..."
         $optimaAccounts = $null
+    }
+
+    try {
+        # Optima Instances
+        Write-Host "Gathering instances detail from Optima..."
+        $optimaStartTime = Get-Date -Date $initialStartTime -Format yyyy-MM-ddThh:mm:ss
+        $optimaEndTime = Get-Date -Date $initialEndTime -Format yyyy-MM-ddThh:mm:ss
+        
+        $optimaHeaders = @{
+            "X-API-Version"="1.0"
+        }
+
+        $accountPayload = @()
+        foreach ($account in $accounts) {
+            $object = New-Object -TypeName PSObject
+            $object | Add-Member -MemberType NoteProperty -Name kind -Value "ca#filter"
+            $object | Add-Member -MemberType NoteProperty -Name type -Value "instance:account_id"
+            $object | Add-Member -MemberType NoteProperty -Name value -Value $account
+            $object | Add-Member -MemberType NoteProperty -Name negate -Value "false"
+            $accountPayload += $object
+        }
+
+        $optimaBodyPayload = @{
+            "start_time"=$optimaStartTime
+            "end_time"=$optimaEndTime
+            "instance_filters"=@(
+                $accountPayload
+            )
+        } | ConvertTo-Json
+
+        $optimaInstancesResult = Invoke-WebRequest -Uri "https://analytics.rightscale.com/api/instances" -WebSession $webSession -Method Post -Headers $optimaHeaders -ContentType $contentType -Body $optimaBodyPayload -ErrorAction SilentlyContinue
+        
+        if($optimaInstancesResult) {
+            Write-Host "Successfully retrieved Instances detail from Optima!"
+            $optimaInstances = ($optimaInstancesResult | ConvertFrom-Json)
+        }
+        else {
+            Write-Host "No access to Optima(Instances). Continuing..."
+            $optimaInstances = $null
+        }
+    }
+    catch {
+        Write-Host "No access to Optima(Instances). Continuing..."
+        $optimaInstances = $null
     }
 }
 catch {
+    Write-Host "No access to Optima. Continuing..."
     $optimaAccounts = $null
+    $optimaInstances = $null
 }
 
 # Step through each account and collect monitoring metrics
@@ -117,7 +184,7 @@ foreach ($account in $accounts) {
                 CONTINUE
             }
             else {
-                Write-Host "$account : $cloudName : Getting running instances"
+                Write-Host "$account : $cloudName : Getting running instances..."
                 # Get instance types
                 $instanceTypes = ./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 index $cloudHref/instance_types | ConvertFrom-Json
                 $instanceTypes = $instanceTypes | Select-Object name, resource_uid, description, memory, cpu_architecture, cpu_count, cpu_speed, @{Name="href";Expression={$_.links | Where-Object { $_.rel -eq "self" } | Select-Object -ExpandProperty href}}
@@ -131,8 +198,23 @@ foreach ($account in $accounts) {
                     $instanceMemory = $instanceTypes | Where-Object { $_.href -eq $instanceTypeHref } | Select-Object -ExpandProperty "memory"
                     $instanceTypeName = $instanceTypes | Where-Object { $_.href -eq $instanceTypeHref } | Select-Object -ExpandProperty "name"
 
-                    if(-not($instanceTypeName)) {
-                        $instanceTypeName = "Unknown"
+                    if(!($instanceTypeName)) {
+                        if($optimaInstances) {
+                            #Instance type is unknown in CM, try Optima
+                            Write-Host "$account : $cloudName : $($instance.name) - $instanceUid : Instance Type 'unknown' in CM! Trying Optima..."
+                            $instanceTypeName = $optimaInstances | Where-Object { $_.instance_uid -eq $instanceUid } | Select-Object -ExpandProperty "instance_type_name"
+                            if($instanceTypeName) {
+                                $instanceMemory = $instanceTypes | Where-Object { $_.name -eq $instanceTypeName } | Select-Object -ExpandProperty "memory"
+                            }
+                            else {
+                                Write-Host "$account : $cloudName : $($instance.name) - $instanceUid : Unable to resolve Instance Type with Optima Data"
+                                $instanceTypeName = "Unknown"
+                            }
+                        }
+                        else {
+                            Write-Host "$account : $cloudName : $($instance.name) - $instanceUid : Unable to resolve Instance Type"
+                            $instanceTypeName = "Unknown"
+                        }
                     }
 
                     if($instanceMemory) {
@@ -152,7 +234,7 @@ foreach ($account in $accounts) {
                         $memMultiplier = ""
                     }   
 
-                    Write-Host "$account : $cloudName : $instanceUid : Instance Type = $instanceTypeName : Instance Memory = $instanceMemory $memMultiplier"
+                    Write-Host "$account : $cloudName : $($instance.name) - $instanceUid : Instance Type = $instanceTypeName : Instance Memory = $instanceMemory $memMultiplier"
 
                     $cpuMax = $null; $cpuAvg = $null; $cpuData = $null; $cpuDataPoints = $null; $cpuDataPointsTotal = $null; $loadMetric = $null;
                     # Test for cpu load metric - Don't trust results, ignoring for now.
@@ -162,7 +244,7 @@ foreach ($account in $accounts) {
                         # Get cpu_avg:percent-loadavg Monitoring Metrics
                         $cpuData = ./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 data $instanceHref/monitoring_metrics/cpu_avg:percent-loadavg/data "start=$startTime" "end=$endTime" --pp 2>$null | ConvertFrom-Json
                         if ($cpuData) {
-                            Write-Host "$account : $cloudName : $instanceUid : Collected CPU metrics"
+                            Write-Host "$account : $cloudName : $($instance.name) - $instanceUid : Collected CPU metrics"
                             $cpuDataPoints = $cpuData.variables_data.points | Where-Object { $_ } # Trim $null returns
                             $cpuDataPointsTotal = $cpuDataPoints.count
                             
@@ -180,14 +262,14 @@ foreach ($account in $accounts) {
                             }
                         }
                         else {
-                            Write-Host "$account : $cloudName : $instanceUid : Unable to retrieve cpu monitoring data"
+                            Write-Host "$account : $cloudName : $($instance.name) - $instanceUid : Unable to retrieve cpu monitoring data"
                         }
                     }
                     else {
                         # Get cpu-0:cpu-idle Monitoring Metrics
                         $cpuData = ./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 data $instanceHref/monitoring_metrics/cpu-0:cpu-idle/data "start=$startTime" "end=$endTime" --pp 2>$null | ConvertFrom-Json
                         if ($cpuData) {
-                            Write-Host "$account : $cloudName : $instanceUid : Collected CPU metrics"
+                            Write-Host "$account : $cloudName : $($instance.name) - $instanceUid : Collected CPU metrics"
                             $cpuDataPoints = $cpuData.variables_data.points | Where-Object { $_ } # Trim $null returns
                             $cpuDataPointsTotal = $cpuDataPoints.count
                             
@@ -205,7 +287,7 @@ foreach ($account in $accounts) {
                             }
                         }
                         else {
-                            Write-Host "$account : $cloudName : $instanceUid : Unable to retrieve cpu monitoring data"
+                            Write-Host "$account : $cloudName : $($instance.name) - $instanceUid : Unable to retrieve cpu monitoring data"
                         }
                     }
 
@@ -214,7 +296,7 @@ foreach ($account in $accounts) {
                         # Get memory:memory-used Monitoring Metrics - Memory is not monitored as a percentage but instead as total used
                         $memData = ./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 data $instanceHref/monitoring_metrics/memory:memory-used/data "start=$startTime" "end=$endTime" --pp 2>$null | ConvertFrom-Json
                         if ($memData) {
-                            Write-Host "$account : $cloudName : $instanceUid : Collected Memory metrics"
+                            Write-Host "$account : $cloudName : $($instance.name) - $instanceUid : Collected Memory metrics"
                             $memDataPoints = $memData.variables_data.points | Where-Object { $_ } # Trim $null returns
                             $memDataPointsTotal = $memDataPoints.count
                             
@@ -231,11 +313,11 @@ foreach ($account in $accounts) {
                             }
                         }
                         else {
-                            Write-Host "$account : $cloudName : $instanceUid : Unable to retrieve memory monitoring data"
+                            Write-Host "$account : $cloudName : $($instance.name) - $instanceUid : Unable to retrieve memory monitoring data"
                         }
                     }
                     else {
-                        Write-Host "$account : $cloudName : $instanceUid : Unable to calculate memory utilization"
+                        Write-Host "$account : $cloudName : $($instance.name) - $instanceUid : Unable to calculate memory utilization"
                     }
 
                     $cpuTimeFrame = $null; $memTimeFrame = $null; $metricTimespan = 0;
@@ -268,9 +350,9 @@ foreach ($account in $accounts) {
                             "AWS*" {$cloud_vendor_name = "Amazon Web Services"}
                             default {$cloud_vendor_name = "Unknown"}
                         }
-                        $optimaData = $optimaAccounts | Where-Object { $_.account_id -eq $account } | Where-Object { $_.cloud_vendor_name -eq $cloud_vendor_name }
-                        $cloudAccountId = $optimaData | Select-Object -First 1 -ExpandProperty cloud_vendor_account_id
-                        $cloudAccountName = $optimaData | Select-Object -First 1 -ExpandProperty cloud_vendor_account_name
+                        $optimaData = $optimaAccounts | Where-Object { $_.account_id -eq $account } | Where-Object { $_.cloud_vendor_name -eq $cloud_vendor_name } 
+                        $cloudAccountId = $optimaData | Where-Object { $_.cloud_vendor_account_id -ne "" } | Where-Object { $_.cloud_vendor_account_name -ne "" } | Select-Object -First 1 -ExpandProperty cloud_vendor_account_id
+                        $cloudAccountName = $optimaData | Where-Object { $_.cloud_vendor_account_id -ne "" } | Where-Object { $_.cloud_vendor_account_name -ne "" } | Select-Object -First 1 -ExpandProperty cloud_vendor_account_name
                     }
                     else {
                         $cloudAccountId = ""
