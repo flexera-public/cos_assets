@@ -1,4 +1,5 @@
 # Find the RSC executable, searches in the current working directory, users home directory, and in known locations
+Write-Output "Finding RSC executable..."
 $rscName = $null; $rscPaths = $null; $rsc = $null
 if($PSVersionTable.PSEdition -eq "Core") {
     # We are using PowerShell Core
@@ -33,9 +34,10 @@ $pass = Read-Host "Enter RS Password" -AsSecureString # RS password
 $endpoint = Read-Host "Enter RS API endpoint (us-3.rightscale.com -or- us-4.rightscale.com)" # us-3.rightscale.com -or- us-4.rightscale.com
 $accounts = Read-Host "Enter RS Account Number(s) (comma-separated if multiple)" # RS account number(s)
 $customerName = Read-Host "Enter Customer Name" # For CSV file name
-
 $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($pass)
 $password = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+
+Write-Output "** Script Start Time: $(Get-Date)"
 
 if ($accounts -like "*,*") {
     $accounts = $accounts.Split(",")
@@ -46,7 +48,7 @@ foreach ($account in $accounts) {
     $account = $account.Trim()
     $clouds = &$rsc --email $email --pwd $password --host $endpoint --account $account cm15 index clouds | ConvertFrom-json
     if (!($clouds)) {
-        Write-Host "$account : No clouds registered to this account."
+        Write-Output "$account : No clouds registered to this account."
         CONTINUE
     }
     else {
@@ -56,13 +58,13 @@ foreach ($account in $accounts) {
                 $volumes = @()
                 $volumes = &$rsc --email $email --pwd $password --host $endpoint --account $account cm15 index $($cloud.links | Where-Object { $_.rel -eq 'volumes' } | Select-Object -ExpandProperty href) | ConvertFrom-Json
                 if(!($volumes)) {
-                    Write-Host "$account : $cloudName : No volumes"
+                    Write-Output "$account : $cloudName : No volumes"
                     CONTINUE
                 }
                 else {
                     foreach ($volume in $volumes) {
                         if (($volume.status -eq "available") -and ($volume.resource_uid -notlike "*system@Microsoft.Compute/Images/*") -and ($volume.resource_uid -notlike "*@images*")) {
-                            Write-Host "$account : $cloudName : $($volume.name) - $($volume.resource_uid) : Unattached"
+                            Write-Output "$account : $cloudName : $($volume.name) - $($volume.resource_uid) : Unattached"
                             $object = New-Object -TypeName PSObject
                             $object | Add-Member -MemberType NoteProperty -Name "RS_Account_ID" -Value $account
                             $object | Add-Member -MemberType NoteProperty -Name "Cloud" -Value $cloudName
@@ -80,7 +82,7 @@ foreach ($account in $accounts) {
                             $unattachedVolumes += $object
                         }
                         else {
-                            Write-Host "$account : $cloudName : $($volume.name) - $($volume.resource_uid) : Attached"
+                            Write-Output "$account : $cloudName : $($volume.name) - $($volume.resource_uid) : Attached"
                         }
                     }
                 }
@@ -93,5 +95,10 @@ if ($unattachedVolumes.count -gt 0){
     $csvTime = Get-Date -Format dd-MMM-yyyy_hhmmss
     $csvFile = "./$($customerName)_unattached-volumes_$($csvTime).csv"
     $unattachedVolumes | Export-Csv $csvFile -NoTypeInformation
-    Write-Output "CSV File: $csvFile"
+    $csvFilePath = Get-item $csvFile | Select-Object -ExpandProperty FullName  
+    Write-Output "** CSV File: $csvFilePath"
 }
+else {
+    Write-Output "** No unattached volumes found!"
+}
+Write-Output "** Script End Time: $(Get-Date)"
