@@ -3,12 +3,24 @@ Write-Output "Finding RSC executable..."
 $rscName = $null; $rscPaths = $null; $rsc = $null
 if($PSVersionTable.PSEdition -eq "Core") {
     # We are using PowerShell Core
-    if($isLinux -or $isOSX) {
+    if($IsLinux -or $IsOSX -or $IsMacOS) {
         $rscName = 'rsc'
         $rscPaths = $PWD, $HOME, '/usr/local/bin', '/opt/bin/'
-    } elseif ($isWindows) {
+    } elseif ($IsWindows) {
         $rscName = 'rsc.exe'
         $rscPaths = $PWD, $HOME, 'C:\Program Files\RightScale\RightLink'
+    } else {
+        # Fail safe if '$Is...` variables are not-present
+        if(Test-Path -Path 'C:\Windows\System32') {
+            # Windows
+            $rscName = 'rsc.exe'
+            $rscPaths = $PWD, $HOME, 'C:\Program Files\RightScale\RightLink'
+        }
+        else {
+            # Linux / OSX
+            $rscName = 'rsc'
+            $rscPaths = $PWD, $HOME, '/usr/local/bin', '/opt/bin/'
+        }
     }
 } elseif ($PSVersionTable.PSEdition -eq "Desktop") {
     # We are using PowerShell Desktop, assume windows
