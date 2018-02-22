@@ -52,7 +52,7 @@ function retrieve_rs_account_info($account)
 
         try {
             # Gather information regarding the given RightScale account.
-            $accountResults = Invoke-RestMethod -Uri https://$endpoint/api/accounts/$account -Headers $headers -Method GET -WebSession $webSessions["$account"] -Body "email=$($rscreds.UserName)&password=$($rscreds.GetNetworkCredential().Password)&account_href=/api/accounts/$account"
+            $accountResults = Invoke-RestMethod -Uri https://$endpoint/api/accounts/$account -Headers $headers -Method GET -WebSession $webSessions["$account"]
             # This retrieves and stores information about the account's owner and endpoint.
             $gAccounts["$account"]['owner'] = "$($accountResults.links | Where-Object { $_.rel -eq 'owner' } | Select-Object -ExpandProperty href | Split-Path -Leaf)"
             $gAccounts["$account"]['endpoint'] = "us-$($accountResults.links | Where-Object { $_.rel -eq 'cluster' } | Select-Object -ExpandProperty href | Split-Path -Leaf).rightscale.com"
@@ -84,7 +84,7 @@ if($accounts.Count -eq 1) {
         # Establish a session with and gather information about the provided account
         retrieve_rs_account_info -account $parentAccount
         # Attempt to pull a list of child accounts (and their account attributes)
-        $childAccountsResult = Invoke-RestMethod -Uri https://$($gAccounts["$parentAccount"]['endpoint'])/api/child_accounts -Headers $headers -Method GET -WebSession $webSessions["$parentAccount"] -Body "email=$($rscreds.UserName)&password=$($rscreds.GetNetworkCredential().Password)&account_href=/api/accounts/$parentAccount"
+        $childAccountsResult = Invoke-RestMethod -Uri https://$($gAccounts["$parentAccount"]['endpoint'])/api/child_accounts?account_href=/api/accounts/$parentAccount -Headers $headers -Method GET -WebSession $webSessions["$parentAccount"]
         # Organize and store child account attributes
         foreach($childAccount in $childAccountsResult)
         {
@@ -126,7 +126,7 @@ if(!$parent_provided) {
 foreach ($account in $gAccounts.Keys) {
     # For a given account, retrieve its clouds
     try {
-        $clouds = Invoke-RestMethod -Uri https://$($gAccounts["$account"]['endpoint'])/api/clouds -Headers $headers -Method GET -WebSession $webSessions["$account"] -Body "email=$($rscreds.UserName)&password=$($rscreds.GetNetworkCredential().Password)&account_href=/api/accounts/$account"
+        $clouds = Invoke-RestMethod -Uri https://$($gAccounts["$account"]['endpoint'])/api/clouds?account_href=/api/accounts/$account -Headers $headers -Method GET -WebSession $webSessions["$account"]
     } catch {
         Write-Host "Unable to pull clouds from $account, it is possible that there are no clouds registered to this account or there is a permissioning issue."
         CONTINUE
@@ -141,7 +141,7 @@ foreach ($account in $gAccounts.Keys) {
         try {
             # Notes:
             # - As of 2018-01-25, because $cloudHref contains a leading /, if we put a / between the endpoint and $cloudHref variables below we will get a 404
-            $instances = Invoke-RestMethod -Uri https://$($gAccounts["$account"]['endpoint'])$cloudHref/instances -Headers $headers -Method GET -WebSession $webSessions["$account"] -Body "email=$($rscreds.UserName)&password=$($rscreds.GetNetworkCredential().Password)&account_href=/api/accounts/$account&view=extended"
+            $instances = Invoke-RestMethod -Uri https://$($gAccounts["$account"]['endpoint'])$cloudHref/instances?view=extended -Headers $headers -Method GET -WebSession $webSessions["$account"]
         } catch {
             Write-Host "Unable to pull instances from $cloudId"
             Write-Host "StatusCode: " $_.Exception.Response.StatusCode.value__
