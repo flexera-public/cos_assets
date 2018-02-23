@@ -33,7 +33,7 @@ function establish_rs_session($account)
 
         try {
             # Establish a session with RightScale, given an account number
-            Invoke-RestMethod -Uri https://$endpoint/api/session -Headers $headers -Method POST -SessionVariable tmpvar -ContentType application/x-www-form-urlencoded -Body "email=$($rscreds.UserName)&password=$($rscreds.GetNetworkCredential().Password)&account_href=/api/accounts/$account" 1>/dev/null
+            Invoke-RestMethod -Uri https://$endpoint/api/session -Headers $headers -Method POST -SessionVariable tmpvar -ContentType application/x-www-form-urlencoded -Body "email=$($rscreds.UserName)&password=$($rscreds.GetNetworkCredential().Password)&account_href=/api/accounts/$account" | Out-Null
             $webSessions["$account"] = $tmpvar
         } catch {
             Write-Host "Unable to establish a session for account: " $account
