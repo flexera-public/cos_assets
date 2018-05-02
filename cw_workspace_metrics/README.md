@@ -50,5 +50,5 @@ The docker image will write the csv output to `/home/aws/output/<date>.csv` file
 If you're familiar with Docker, and have it installed, you should be able to effectively do just this.
 ```
 docker build -t cw_workspace_metrics .
-docker run --rm -it -e AWS_DEFAULT_REGION=us-east-1 -e AWS_ACCESS_KEY_ID=<your access key id> -e AWS_SECRET_ACCESS_KEY=<your access key> -v `pwd`:/home/aws/output cw_workspace_metrics
+docker run --rm -it -e AWS_DEFAULT_REGION=us-east-1 -e AWS_ACCESS_KEY_ID=<your access key id> -e AWS_SECRET_ACCESS_KEY=<your access key> -v cw_workspace_metrics:/home/aws/output:rw cw_workspace_metrics
 ```
