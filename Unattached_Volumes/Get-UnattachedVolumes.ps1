@@ -58,7 +58,7 @@ if ($accounts -like "*,*") {
 $unattachedVolumes = @()
 foreach ($account in $accounts) {
     $account = $account.Trim()
-    $clouds = &$rsc --email $email --pwd $password --host $endpoint --account $account cm15 index clouds | ConvertFrom-json
+    $clouds = &$rsc --email=$email --pwd=$password --host=$endpoint --account=$account cm15 index clouds | ConvertFrom-json
     if (!($clouds)) {
         Write-Output "$account : No clouds registered to this account."
         CONTINUE
@@ -66,9 +66,13 @@ foreach ($account in $accounts) {
     else {
         foreach ($cloud in $clouds) {
             $cloudName = $cloud.display_name
+            if($cloudName -like "AzureRM*") {
+                $volumeTypes = &$rsc --email=$email --pwd=$password --host=$endpoint --account=$account cm15 index $($cloud.links | Where-Object { $_.rel -eq 'volume_types' } | Select-Object -ExpandProperty href) | ConvertFrom-Json
+                $volumeTypes = $volumeTypes | Select-Object name, resource_uid, @{n='href';e={$_.links | Where-Object {$_.rel -eq 'self'}| Select-Object -ExpandProperty href}}
+            }
             if ($($cloud.links | Where-Object { $_.rel -eq 'volumes'})) {                                                                              
                 $volumes = @()
-                $volumes = &$rsc --email $email --pwd $password --host $endpoint --account $account cm15 index $($cloud.links | Where-Object { $_.rel -eq 'volumes' } | Select-Object -ExpandProperty href) | ConvertFrom-Json
+                $volumes = &$rsc --email=$email --pwd=$password --host=$endpoint --account=$account cm15 index $($cloud.links | Where-Object { $_.rel -eq 'volumes' } | Select-Object -ExpandProperty href) "view=extended"| ConvertFrom-Json
                 if(!($volumes)) {
                     Write-Output "$account : $cloudName : No volumes"
                     CONTINUE
@@ -77,6 +81,47 @@ foreach ($account in $accounts) {
                     foreach ($volume in $volumes) {
                         if (($volume.status -eq "available") -and ($volume.resource_uid -notlike "*system@Microsoft.Compute/Images/*") -and ($volume.resource_uid -notlike "*@images*")) {
                             Write-Output "$account : $cloudName : $($volume.name) - $($volume.resource_uid) : Unattached"
+                            
+                            if($cloudName -like "AzureRM*") {
+                                $volumeTypeHref = $volume.links | Where-Object { $_.rel -eq "volume_type" } | Select-Object -ExpandProperty href
+                                $placementGroupHref = $volume.links | Where-Object { $_.rel -eq "placement_group" } | Select-Object -ExpandProperty href
+                                if($placementGroupHref) {
+                                    $armDiskType = "Unmanaged"
+                                    $placementGroup = &$rsc --email=$email --pwd=$password --host=$endpoint --account=$account cm15 show $placementGroupHref "view=extended" 2>$null| ConvertFrom-Json
+                                    if ($placementGroup) {
+                                        $armStorageType = $placementGroup.cloud_specific_attributes.account_type
+                                    }
+                                    else {
+                                        Write-Output "$account : $cloudName : $($volume.name) - $($volume.resource_uid) : ERROR retrieving Placement Group!!"
+                                        $armStorageType = "ERROR"
+                                    }
+                                    $armStorageAccountName = $volume.placement_group.name
+                                }
+                                elseif($volumeTypeHref) {
+                                    $armDiskType = "Managed"
+                                    $armStorageType = $volumeTypes | Where-Object { $_.href -eq $volumeTypeHref } | Select-Object -ExpandProperty name
+                                    $armStorageAccountName = "N/A"
+                                }
+                                else {
+                                    $armDiskType = "Unknown"
+                                    $armStorageType = "Unknown"
+                                    $armStorageAccountName = "Unknown"
+                                }
+                            }
+                            elseif ($cloudName -like "Azure*") {
+                                $armDiskType = "Unmanaged"
+                                $armStorageType = "Classic"
+                                $armStorageAccountName = $volume.placement_group.name
+                                if(!($armStorageAccountName)) {
+                                    $armStorageAccountName = "Unknown"
+                                }
+                            }
+                            else {
+                                $armDiskType = "N/A"
+                                $armStorageType = "N/A"
+                                $armStorageAccountName = "N/A"
+                            }
+
                             $object = New-Object -TypeName PSObject
                             $object | Add-Member -MemberType NoteProperty -Name "RS_Account_ID" -Value $account
                             $object | Add-Member -MemberType NoteProperty -Name "Cloud" -Value $cloudName
@@ -87,6 +132,9 @@ foreach ($account in $accounts) {
                             $object | Add-Member -MemberType NoteProperty -Name "Resource_UID" -Value $volume.resource_uid
                             $object | Add-Member -MemberType NoteProperty -Name "Size"-Value $volume.size
                             $object | Add-Member -MemberType NoteProperty -Name "Status" -Value $volume.status
+                            $object | Add-Member -MemberType NoteProperty -Name "Azure_Disk_Type"-Value $armDiskType
+                            $object | Add-Member -MemberType NoteProperty -Name "Azure_Storage_Type" -Value $armStorageType
+                            $object | Add-Member -MemberType NoteProperty -Name "Azure_Storage_Account" -Value $armStorageAccountName
                             $object | Add-Member -MemberType NoteProperty -Name "Created_At" -Value $volume.created_at
                             $object | Add-Member -MemberType NoteProperty -Name "Updated_At" -Value $volume.updated_at
                             $object | Add-Member -MemberType NoteProperty -Name "Cloud_Specific_Attributes" -Value $volume.cloud_specific_attributes
