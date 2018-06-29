@@ -9,6 +9,8 @@ if [[ -z "$AWS_ACCESS_KEY_ID" || -z "$AWS_SECRET_ACCESS_KEY" ]]; then
   exit 1
 fi
 
+echo "instance_id,cpu_avg,cpu_max,region"
+
 for i in `/home/aws/aws/env/bin/aws ec2 describe-regions | jq -r '.Regions[].RegionName'`
 do
   export AWS_DEFAULT_REGION=$i
