@@ -1,24 +1,26 @@
-# cos_assets
-Tools used to generate Cost Optimization Assessments
+# RightScale Cost Optimization Assets
+This repo contains a library of open source RightScale Cost Optimization Assets.
 
-# Public Assets
-Some of the tools in this repo need to be made available for customers to execute on our behalf to complete a COS engagement.
+### Utilization Scripts
+- [Azure Utilization Script](./Azure/)
+- [AWS Utilization Script](./cw_cpu_avg/)
 
-These assets are published on each commit to the repo using a TravisCI workflow.
 
-Current TravisCI build/deploy status for master branch:
-[![Build Status](https://travis-ci.com/rs-services/cos_assets.svg?token=yQyhq88xsk4v5rQZwjep&branch=master)](https://travis-ci.com/rs-services/cos_assets)
+### Unattached Volumes
+- [Get Unattached Volumes Script (Azure and AWS)](./Unattached_Volumes/)
 
-## Publication Account Details
-The assets are published to an S3 bucket in the RightScale Professional Services AWS account
-* AWS Account ID: 046153706588
-* AWS IAM User ARN: arn:aws:iam::046153706588:user/cos_assets_travis
-* RightScale Account ID: 58242
-* S3 Bucket: https://s3.amazonaws.com/rs-cos-assets
 
-## cw_cpu_avg
-The CloudWatch CPU utilization script `cw_cpu_avg` is published to a subfolder of the bucket named `cw_cpu_avg`.
+### Snapshots
+- [Get Snapshots Older Than A Date Specified](./Get_Old_Snapshots.ps1/)
 
-The filenames will be `cw_cpu_avg-(branch|tag)-<branch or tag name>.tar.gz`.
 
-Thus, the latest version of the script will always be available at https://s3.amazonaws.com/rs-cos-assets/cw_cpu_avg/cw_cpu_avg-branch-master.tar.gz
+## Getting Help
+Support for these assets will be provided though GitHub Issues and the RightScale public slack channel #cloud-cost-management.
+Visit http://chat.rightscale.com/ to join!
+
+### Opening an Issue
+Github issues contain a template for three types of requests(Bugs, New Features to an existing script, New Script Request)
+
+- Bugs: Any issue you are having with an existing script not functioning correctly, this does not include missing features, or actions.
+- New Feature Request: Any feature(Field, Action, Link, Output, etc) that are to be added to an existing script. 
+- New Script Request: Request for a new script to be added to the Cost Optimization Assets.
