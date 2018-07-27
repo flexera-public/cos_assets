@@ -30,15 +30,15 @@ WITH usage AS (
     REGEXP_REPLACE(k.description, r'"\\\$[0-9]*(\.[0-9]*)? ', '') as description,
     REGEXP_EXTRACT(k.description, r'Dedicated') = "Dedicated" as dedicated,
     ROW_NUMBER() OVER(PARTITION BY k.instance_type, k.region, k.operating_system, REGEXP_REPLACE(k.description, r'"\\\$[0-9]*(\.[0-9]*)? ', '') ORDER BY count(cc.ts) desc) as row_number
-  FROM sap_aws.keys k
-  INNER JOIN sap_aws.cost c ON c.key = k.key,
+  FROM ${d_ds}.keys k
+  INNER JOIN ${d_ds}.cost c ON c.key = k.key,
     unnest(c.cost) as cc
   WHERE k.instance_type is not null 
     and k.category = "compute" 
     and k.usage_type = "BoxUsage" 
     and (DATE(c._PARTITIONTIME) BETWEEN DATE("$d_start") AND DATE("$d_end"))  -- change dates as needed, also in WHERE clause for pricing
     and c.amortized_unblended is true
-    and k.account_id = ("$d_account_id")
+    and k.account_id = "$d_account_id"
   --  and operating_system = "Windows"
   --  and instance_type = 'r3.8xlarge' and region = "US East (N. Virginia)" and operating_system = "SUSE"
   --  and instance_type = 'm4.4xlarge' and region = "US West (Oregon)"      and operating_system = "Linux"
