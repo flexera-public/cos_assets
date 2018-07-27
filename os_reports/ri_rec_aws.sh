@@ -9,11 +9,13 @@ d_file="ri_recommendations_$(date +%s).csv"
 d_ds="bmc2_aws"
  
 
-read -rep "AWS Account ID (default $d_account_id): " account_id
+read -rep "AWS Account ID (default $d_account_id): " d_account_id
 read -rep "Start Date (default $d_start): " start
 read -rep "End Date (default $d_end): " end
 read -rep "Dataset (default $d_ds): " ds
 read -rep "Output File (default $d_file): " file
+
+
 
 cat <<EOF > ri_query.txt
 WITH usage AS (
@@ -36,7 +38,7 @@ WITH usage AS (
     and k.usage_type = "BoxUsage" 
     and (DATE(c._PARTITIONTIME) BETWEEN DATE("$d_start") AND DATE("$d_end"))  -- change dates as needed, also in WHERE clause for pricing
     and c.amortized_unblended is true
-    and k.account_id = "$d_account_id"
+    and k.account_id = ("$d_account_id")
   --  and operating_system = "Windows"
   --  and instance_type = 'r3.8xlarge' and region = "US East (N. Virginia)" and operating_system = "SUSE"
   --  and instance_type = 'm4.4xlarge' and region = "US West (Oregon)"      and operating_system = "Linux"
