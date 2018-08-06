@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
 set -e
-set -x
+#set -x
 
 #defaults
 API_HOST="us-4"
 REFRESH_TOKEN=""
-START_TIME="2018-015-01T00:00:00"
+START_TIME="2018-07-15T00:00:00"
 END_TIME="2018-07-30T23:59:00"
 ACCOUNT_IDS="" #"106220"
 TIMEZONE="America/Los_Angeles"
@@ -18,7 +18,7 @@ help(){
   echo "-p password             your rightscale password"
   echo "-r refresh_token        your rightscale refresh token"
   echo "-H us-4                 rightscale host, us-4, us-3, telstra-1-"
-  echo "-a "12345,67890,..."    list of rightscale account ids"
+  echo "-a "12345 67890 ..."    list of rightscale account ids, space delimited"
   echo "-z TIMEZONE             filter timezone. defaults to America/Los_Angeles"
   echo "-S 2018-7-15T00:00:00   filter start time"
   echo "-E 2018-7-30T00:00:00   filter end time"
@@ -94,8 +94,8 @@ else
     help
     exit 1
   fi
-  curl -i -H X_API_VERSION:1.5 -c mycookie -X POST --data-urlencode "email=$EMAIL" \
-  --data-urlencode "password=$PASSWORD" -d account_href=/api/accounts/"$account" https://$API_HOST.rightscale.com/api/session
+  curl -H X_API_VERSION:1.5 -c mycookie -X POST --data-urlencode "email=$EMAIL" \
+  --data-urlencode "password=$PASSWORD" -d account_href=/api/accounts/"${ACCOUNT_IDS[0]}" https://$API_HOST.rightscale.com/api/session
   AUTH_OPTION=$(printf "%s" "-b mycookie")
 fi
 
@@ -104,16 +104,20 @@ if [ -z "$ACCOUNT_IDS[@]" ];then
   help
   exit 1
 fi
+echo "---> Authenticated with RightScale"
 # # export instances
+echo "---> Exporting Instances"
 curl -H "X-API-Version:1.0" $AUTH_OPTION  \
   -H Content-Type:text/json \
   -o instances-$TIMESTAMP.csv \
   -d "{\"start_time\":\"$START_TIME\",\"end_time\":\"$END_TIME\",\"timezone\":\"$TIMEZONE\",\"instance_filters\":$instance_filters_json}"\
   https://analytics.rightscale.com/api/instances/actions/export
-
+echo "---> Instances export complete.  See file instances-$TIMESTAMP.csv"
 #export reserved_instances
+echo "---> Exporting Reserved Instances"
 curl  -H "X-API-Version:1.0" $AUTH_OPTION  \
   -H Content-Type:text/json \
   -o ri-$TIMESTAMP.csv \
   -d "{\"start_time\":\"$START_TIME\",\"end_time\":\"$END_TIME\",\"timezone\":\"$TIMEZONE\",\"reserved_instance_filters\":$instance_filters_json}"\
   https://analytics.rightscale.com/api/reserved_instances/actions/export
+  echo "---> Reserved Instances export complete.  See file ri-$TIMESTAMP.csv"
