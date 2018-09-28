@@ -85,26 +85,33 @@ if($accounts.Count -eq 1) {
         retrieve_rs_account_info -account $parentAccount
         # Attempt to pull a list of child accounts (and their account attributes)
         $childAccountsResult = Invoke-RestMethod -Uri https://$($gAccounts["$parentAccount"]['endpoint'])/api/child_accounts?account_href=/api/accounts/$parentAccount -Headers $headers -Method GET -WebSession $webSessions["$parentAccount"]
-        # Organize and store child account attributes
-        foreach($childAccount in $childAccountsResult)
-        {
-            $accountNum = $childAccount.links | Where-Object { $_.rel -eq "self" } | Select-Object -ExpandProperty href | Split-Path -Leaf
-            $gAccounts["$accountNum"] += @{
-                                           'endpoint'="us-$($childAccount.links | Where-Object { $_.rel -eq 'cluster' } | Select-Object -ExpandProperty href | Split-Path -Leaf).rightscale.com";
-                                           'owner'="$($childAccount.links | Where-Object { $_.rel -eq 'owner' } | Select-Object -ExpandProperty href | Split-Path -Leaf)"
-                                           }
+        if($childAccountsResult.count -gt 0) {
+            # Organize and store child account attributes
+            foreach($childAccount in $childAccountsResult)
+            {
+                $accountNum = $childAccount.links | Where-Object { $_.rel -eq "self" } | Select-Object -ExpandProperty href | Split-Path -Leaf
+                $gAccounts["$accountNum"] += @{
+                                            'endpoint'="us-$($childAccount.links | Where-Object { $_.rel -eq 'cluster' } | Select-Object -ExpandProperty href | Split-Path -Leaf).rightscale.com";
+                                            'owner'="$($childAccount.links | Where-Object { $_.rel -eq 'owner' } | Select-Object -ExpandProperty href | Split-Path -Leaf)"
+                                            }
+            }
+            # Parse the output and turn it into an array of child accounts
+            $childAccounts = $childAccountsResult.links | Where-Object { $_.rel -eq "self" } | Select-Object -ExpandProperty href | Split-Path -Leaf
+            # If anything had errored out prior to here, we would not get to this line, so we are confident that we were provided a parent account
+            $parent_provided = $true
+            # Establish sessions with and gather information about all of the child accounts individually
+            foreach ($childAccount in $childAccounts) {
+                retrieve_rs_account_info -account $childAccount
+            }
+            # Add the newly enumerated child accounts back to the list of accounts
+            $accounts = $accounts + $childAccounts
+            Write-Host "Child accounts of $parentAccount have been identified: $childAccounts"
         }
-        # Parse the output and turn it into an array of child accounts
-        $childAccounts = $childAccountsResult.links | Where-Object { $_.rel -eq "self" } | Select-Object -ExpandProperty href | Split-Path -Leaf
-        # If anything had errored out prior to here, we would not get to this line, so we are confident that we were provided a parent account
-        $parent_provided = $true
-        # Establish sessions with and gather information about all of the child accounts individually
-        foreach ($childAccount in $childAccounts) {
-            retrieve_rs_account_info -account $childAccount
+        else {
+            # No child accounts
+            $parent_provided = $false
+            Write-Host "No child accounts identified."
         }
-        # Add the newly enumerated child accounts back to the list of accounts
-        $accounts = $accounts + $childAccounts
-        Write-Host "Child accounts of $parentAccount have been identified: $childAccounts"
     } catch {
         # Issue while attempting to pull child accounts, assume this is not a parent account
         Write-Host "No child accounts identified."

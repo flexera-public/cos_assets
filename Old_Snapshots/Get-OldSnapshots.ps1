@@ -114,7 +114,6 @@ else {
                 $parent_provided = $false
                 Write-Host "No child accounts identified."
             }
-
         } catch {
             # Issue while attempting to pull child accounts, assume this is not a parent account
             Write-Host "No child accounts identified."
