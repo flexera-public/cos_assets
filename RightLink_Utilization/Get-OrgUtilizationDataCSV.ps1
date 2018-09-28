@@ -4,12 +4,21 @@
 # Requires enterprise_manager on the parent and observer on the child accounts
 # Beginning and end time frame can be entered as just dates, which will set a time of midnight, or fully qualified dates and times.
 
-$customer_name = Read-Host "Enter Customer Name" # Used for name of CSV
-$email = Read-Host "Enter RS email address" # email address associated with RS user
-$password = Read-Host "Enter RS Password" # RS password
-$initialStartTime = Read-host "Enter beginning of time frame to collect from in MM/DD/YYYY HH:MM:SS"
-$initialEndTime = Read-Host "Enter end of time frame to collect from in MM/DD/YYYY HH:MM:SS or press enter for now"
-$csvFile = Read-Host "Enter the path to the csv to import"
+param(
+    $customer_name,
+    $email,
+    $password,
+    $initialStartTime,
+    $initialEndTime,
+    $csvFile
+)
+
+#$customer_name = Read-Host "Enter Customer Name" # Used for name of CSV
+#$email = Read-Host "Enter RS email address" # email address associated with RS user
+#$password = Read-Host "Enter RS Password" # RS password
+#$initialStartTime = Read-host "Enter beginning of time frame to collect from in MM/DD/YYYY HH:MM:SS"
+#$initialEndTime = Read-Host "Enter end of time frame to collect from in MM/DD/YYYY HH:MM:SS or press enter for now"
+#$csvFile = Read-Host "Enter the path to the csv to import"
 
 if(Test-Path -Path $csvFile) {
     $importedInstances = Import-Csv -Path $csvFile
@@ -159,7 +168,7 @@ foreach ($acct in $accounts) {
     $account = $acct.Account_ID
     $endpoint = $acct.Account_Endpoint
     Write-Host "$account : Getting Account Name..."
-    $accountName = (./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 show /api/accounts/$account | ConvertFrom-Json) | Select-Object -ExpandProperty name
+    $accountName = (rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 show /api/accounts/$account | ConvertFrom-Json) | Select-Object -ExpandProperty name
 
     $allAccountInstances = $importedInstances | Where-Object { $_.State -eq "Operational" -and $_.Account_ID -eq $account } | Sort-Object -Property Cloud_Href
     $clouds = $allAccountInstances | Select-Object Cloud_name, Cloud_Href -Unique
@@ -175,12 +184,12 @@ foreach ($acct in $accounts) {
             else {
                 # Get instance types
                 Write-Host "$account : $cloudName : Getting Instance Types from CM..."
-                $instanceTypes = ./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 index $cloudHref/instance_types | ConvertFrom-Json
+                $instanceTypes = rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 index $cloudHref/instance_types | ConvertFrom-Json
                 $instanceTypes = $instanceTypes | Select-Object name, resource_uid, description, memory, cpu_architecture, cpu_count, cpu_speed, @{Name="href";Expression={$_.links | Where-Object { $_.rel -eq "self" } | Select-Object -ExpandProperty href}}
             
                 foreach ($instanceRef in $instances) {
                     # Get instances. Use extended view so we get an instance_type href.
-                    #$instance = ./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 show $instanceRef.Instance_Href "view=extended"| ConvertFrom-Json
+                    #$instance = rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 show $instanceRef.Instance_Href "view=extended"| ConvertFrom-Json
                     $instanceHref = $instanceRef.Instance_Href
                     $instanceUid = $instanceRef.Resource_UID
                     $instanceName = $instanceRef.Instance_Name
@@ -231,11 +240,11 @@ foreach ($acct in $accounts) {
 
                     $cpuMax = $null; $cpuAvg = $null; $cpuData = $null; $cpuDataPoints = $null; $cpuDataPointsTotal = $null; $loadMetric = $null;
                     # Test for cpu load metric - Don't trust results, ignoring for now.
-                    #$loadMetric = ./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 index $instanceHref/monitoring_metrics "filter[]=plugin==cpu_avg" "filter[]=view==percent-loadavg" --pp 2>$null | ConvertFrom-Json
+                    #$loadMetric = rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 index $instanceHref/monitoring_metrics "filter[]=plugin==cpu_avg" "filter[]=view==percent-loadavg" --pp 2>$null | ConvertFrom-Json
                     
                     if($loadMetric) {
                         # Get cpu_avg:percent-loadavg Monitoring Metrics
-                        $cpuData = ./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 data $instanceHref/monitoring_metrics/cpu_avg:percent-loadavg/data "start=$startTime" "end=$endTime" --pp 2>$null | ConvertFrom-Json
+                        $cpuData = rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 data $instanceHref/monitoring_metrics/cpu_avg:percent-loadavg/data "start=$startTime" "end=$endTime" --pp 2>$null | ConvertFrom-Json
                         if ($cpuData) {
                             Write-Host "$account : $cloudName : $instanceName - $instanceUid : Collected CPU metrics"
                             $cpuDataPoints = $cpuData.variables_data.points | Where-Object { $_ } # Trim $null returns
@@ -260,7 +269,7 @@ foreach ($acct in $accounts) {
                     }
                     else {
                         # Get cpu-0:cpu-idle Monitoring Metrics
-                        $cpuData = ./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 data $instanceHref/monitoring_metrics/cpu-0:cpu-idle/data "start=$startTime" "end=$endTime" --pp 2>$null | ConvertFrom-Json
+                        $cpuData = rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 data $instanceHref/monitoring_metrics/cpu-0:cpu-idle/data "start=$startTime" "end=$endTime" --pp 2>$null | ConvertFrom-Json
                         if ($cpuData) {
                             Write-Host "$account : $cloudName : $instanceName - $instanceUid : Collected CPU metrics"
                             $cpuDataPoints = $cpuData.variables_data.points | Where-Object { $_ } # Trim $null returns
@@ -287,7 +296,7 @@ foreach ($acct in $accounts) {
                     $memMax = $null; $memAvg = $null; $memData = $null; $memDataPoints = $null; $memDataPointsTotal = $null;
                     if($instanceMemory -ne "Unknown") {
                         # Get memory:memory-used Monitoring Metrics - Memory is not monitored as a percentage but instead as total used
-                        $memData = ./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 data $instanceHref/monitoring_metrics/memory:memory-used/data "start=$startTime" "end=$endTime" --pp 2>$null | ConvertFrom-Json
+                        $memData = rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 data $instanceHref/monitoring_metrics/memory:memory-used/data "start=$startTime" "end=$endTime" --pp 2>$null | ConvertFrom-Json
                         if ($memData) {
                             Write-Host "$account : $cloudName : $instanceName - $instanceUid : Collected Memory metrics"
                             $memDataPoints = $memData.variables_data.points | Where-Object { $_ } # Trim $null returns
