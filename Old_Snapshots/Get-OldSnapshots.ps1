@@ -12,9 +12,9 @@ if ($PSVersionTable.PSVersion.Major -lt 3) {
 
 $rscreds = Get-Credential
 $customer_name = Read-Host "Enter Customer Name"
-$endpoint = Read-Host "Enter RS API endpoint (us-3.rightscale.com -or- us-4.rightscale.com)"
+$endpoint = Read-Host "Enter RS API endpoint. Example: us-3.rightscale.com"
 $accounts = Read-Host "Enter comma separated list of RS Account Number(s) or the Parent Account number. Example: 1234,4321,1111"
-$date = Read-Host "Input date for newest allowed volume snapshots (format: YYYY/MM/DD).  Note: snapshots created on or after this date will not be targeted unless the parent volume no longer exists."
+$date = Read-Host "Input date for newest allowed volume snapshots (format: YYYY/MM/DD). Note: snapshots created on or after this date will not be targeted unless the parent volume no longer exists."
 
 ## Instantiate variables
 $parent_provided = $false
@@ -32,11 +32,12 @@ function establish_rs_session($account) {
 
     try {
         # Establish a session with RightScale, given an account number
+        Write-Output "$account : Establishing a web session..."
         Invoke-RestMethod -Uri "https://$endpoint/api/session" -Headers $headers -Method POST -SessionVariable tmpvar -ContentType application/x-www-form-urlencoded -Body "email=$($rscreds.UserName)&password=$($rscreds.GetNetworkCredential().Password)&account_href=/api/accounts/$account" | Out-Null
         $webSessions["$account"] = $tmpvar
     } catch {
-        Write-Host "Unable to establish a session for account: " $account
-        Write-Host "StatusCode: " $_.Exception.Response.StatusCode.value__
+        Write-Output "$account : Unable to establish a session!"
+        Write-Output "$account : StatusCode: " $_.Exception.Response.StatusCode.value__
         exit 1
     }
 }
@@ -50,13 +51,21 @@ function retrieve_rs_account_info($account) {
 
     try {
         # Gather information regarding the given RightScale account.
+        Write-Output "$account : Retrieving account information..."
         $accountResults = Invoke-RestMethod -Uri https://$endpoint/api/accounts/$account -Headers $headers -Method GET -WebSession $webSessions["$account"]
         # This retrieves and stores information about the account's owner and endpoint.
         $gAccounts["$account"]['owner'] = "$($accountResults.links | Where-Object { $_.rel -eq 'owner' } | Select-Object -ExpandProperty href | Split-Path -Leaf)"
-        $gAccounts["$account"]['endpoint'] = "us-$($accountResults.links | Where-Object { $_.rel -eq 'cluster' } | Select-Object -ExpandProperty href | Split-Path -Leaf).rightscale.com"
+        $cluster = $accountResults.links | Where-Object { $_.rel -eq 'cluster' } | Select-Object -ExpandProperty href | Split-Path -Leaf
+        if($cluster -eq 10) {
+            $accountEndpoint = "telstra-$cluster.rightscale.com"
+        }
+        else {
+            $accountEndpoint = "us-$cluster.rightscale.com"
+        }
+        $gAccounts["$account"]['endpoint'] = $accountEndpoint
     } catch {
-        Write-Host "Unable to retrieve account information regarding account: " $account
-        Write-Host "StatusCode: " $_.Exception.Response.StatusCode.value__
+        Write-Output "$account : Unable to retrieve account information!"
+        Write-Output "$account : StatusCode: " $_.Exception.Response.StatusCode.value__
         exit 1
     }
 }
@@ -92,10 +101,17 @@ else {
                 foreach($childAccount in $childAccountsResult)
                 {
                     $accountNum = $childAccount.links | Where-Object { $_.rel -eq "self" } | Select-Object -ExpandProperty href | Split-Path -Leaf
+                    $cluster = $childAccount.links | Where-Object { $_.rel -eq 'cluster' } | Select-Object -ExpandProperty href | Split-Path -Leaf
+                    if($cluster -eq 10) {
+                        $accountEndpoint = "telstra-$cluster.rightscale.com"
+                    }
+                    else {
+                        $accountEndpoint = "us-$cluster.rightscale.com"
+                    }
                     $gAccounts["$accountNum"] += @{
-                                                'endpoint'="us-$($childAccount.links | Where-Object { $_.rel -eq 'cluster' } | Select-Object -ExpandProperty href | Split-Path -Leaf).rightscale.com";
-                                                'owner'="$($childAccount.links | Where-Object { $_.rel -eq 'owner' } | Select-Object -ExpandProperty href | Split-Path -Leaf)"
-                                                }
+                        'endpoint'=$accountEndpoint;
+                        'owner'="$($childAccount.links | Where-Object { $_.rel -eq 'owner' } | Select-Object -ExpandProperty href | Split-Path -Leaf)"
+                    }
                 }
                 # Parse the output and turn it into an array of child accounts
                 $childAccounts = $childAccountsResult.links | Where-Object { $_.rel -eq "self" } | Select-Object -ExpandProperty href | Split-Path -Leaf
@@ -107,16 +123,16 @@ else {
                 }
                 # Add the newly enumerated child accounts back to the list of accounts
                 $accounts = $accounts + $childAccounts
-                Write-Host "Child accounts of $parentAccount have been identified: $childAccounts"
+                Write-Output "$parentAccount : Child accounts have been identified: $childAccounts"
             }
             else {
                 # No child accounts
                 $parent_provided = $false
-                Write-Host "No child accounts identified."
+                Write-Output "$parentAccount : No child accounts identified."
             }
         } catch {
             # Issue while attempting to pull child accounts, assume this is not a parent account
-            Write-Host "No child accounts identified."
+            Write-Output "$parentAccount : No child accounts identified."
         }
     }
 
@@ -137,18 +153,22 @@ else {
         $totalAccountSnapsNoParent = 0
         $totalAccountSnapsDate = 0
 
+        # Account Name
+        #$accountName = (./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 show /api/accounts/$account | ConvertFrom-Json) | Select-Object -ExpandProperty name
+        $accountName = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])/api/accounts/$account" -Headers $headers -Method GET -WebSession $webSessions["$account"] | Select-Object -ExpandProperty name
+
         # Get Clouds
         try {
             $clouds = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])/api/clouds?account_href=/api/accounts/$account" -Headers $headers -Method GET -WebSession $webSessions["$account"]
         } 
         catch {
-            Write-Host "Unable to pull clouds from $account, it is possible that there are no clouds registered to this account or there is a permissioning issue."
+            Write-Output "$account : Unable to pull clouds! It is possible that there are no clouds registered to this account or there is a permissioning issue."
             CONTINUE
         }
 
         if(($clouds.display_name -like "AWS*").count -gt 0) {
             # Account has AWS connected, get the Account ID
-            Write-Output "$account : AWS Clouds Connected - Retrieving AWS Account ID..."
+            Write-Output "$account : AWS Clouds Connected - Retrieving AWS Account IDs..."
             $originalSessionHeaders = $webSessions["$account"].Headers["X_API_VERSION"]
             $webSessions["$account"].Headers.Remove("X_API_VERSION") | Out-Null
             $cloudAccounts = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])/api/cloud_accounts" -Headers @{"X-Api-Version"="1.6";"X-Account"=$account} -Method GET -WebSession $webSessions["$account"]
@@ -200,7 +220,8 @@ else {
                             }
                             $object = $null
                             $object = New-Object psobject
-                            $object | Add-Member -MemberType NoteProperty -Name "Account" -Value $account
+                            $object | Add-Member -MemberType NoteProperty -Name "Account_ID" -Value $account
+                            $object | Add-Member -MemberType NoteProperty -Name "Account_Name" -Value $accountName
                             $object | Add-Member -MemberType NoteProperty -Name "Cloud" -Value $cloudName
                             $object | Add-Member -MemberType NoteProperty -Name "Name" -Value $snap.name
                             $object | Add-Member -MemberType NoteProperty -Name "Resource_UID" -Value $snap.resource_uid 
