@@ -73,7 +73,7 @@ function retrieve_rs_account_info($account) {
 $currentTime = Get-Date
 Write-Output "Script Start Time: $currentTime"
 $csvTime = Get-Date -Date $currentTime -Format dd-MMM-yyyy_hhmmss
-$myDate = Get-Date $currentTime
+$myDate = Get-Date $date
 
 # Convert the comma separated $accounts into a unique array of accounts
 $accounts = $accounts.Split(",") | Get-Unique
@@ -213,9 +213,11 @@ else {
 
                         if (($volumeHrefs -notcontains $parentVolumeHref) -or ($snapDate -lt $myDate)) { 
                             if ($volumeHrefs -notcontains $parentVolumeHref) { 
+                                $parentVolAvailable = $parentVolumeHref
                                 $totalAccountSnapsNoParent ++
                             }
                             else {
+                                $parentVolAvailable = "Not Available"
                                 $totalAccountSnapsDate ++
                             }
                             $object = $null
@@ -230,7 +232,8 @@ else {
                             $object | Add-Member -MemberType NoteProperty -Name "Started_At" -Value $snap.created_at 
                             $object | Add-Member -MemberType NoteProperty -Name "Updated_At" -Value $snap.updated_at 
                             $object | Add-Member -MemberType NoteProperty -Name "Cloud_Specific_Attributes" -Value $snap.cloud_specific_attributes 
-                            $object | Add-Member -MemberType NoteProperty -Name "State" -Value $snap.state 
+                            $object | Add-Member -MemberType NoteProperty -Name "State" -Value $snap.state
+                            $object | Add-Member -MemberType NoteProperty -Name "Parent_Volume" -Value $parentVolAvailable
                             $targetSnaps += $object
                         }
                     }
