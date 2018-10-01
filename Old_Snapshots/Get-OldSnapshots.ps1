@@ -14,7 +14,7 @@ $rscreds = Get-Credential
 $customer_name = Read-Host "Enter Customer Name"
 $endpoint = Read-Host "Enter RS API endpoint. Example: us-3.rightscale.com"
 $accounts = Read-Host "Enter comma separated list of RS Account Number(s) or the Parent Account number. Example: 1234,4321,1111"
-$date = Read-Host "Input date for newest allowed volume snapshots (format: YYYY/MM/DD). Note: snapshots created on or after this date will not be targeted unless the parent volume no longer exists."
+$date = Read-Host "Input date for newest allowed volume snapshots (format: YYYY/MM/DD)."
 
 ## Instantiate variables
 $parent_provided = $false
@@ -149,9 +149,8 @@ else {
 
     foreach ($account in $gAccounts.Keys) {
         $targetSnaps = [System.Collections.ArrayList]@()
-        $totalAccountSnaps = 0
-        $totalAccountSnapsNoParent = 0
-        $totalAccountSnapsDate = 0
+        $cTotalAccountSnaps = 0
+        $cTotalAccountSnapsDate = 0
 
         # Account Name
         #$accountName = (./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 show /api/accounts/$account | ConvertFrom-Json) | Select-Object -ExpandProperty name
@@ -204,21 +203,20 @@ else {
                         $snapQueryUri = "https://" + $($gAccounts["$account"]['endpoint']) + $(($cloud.links | Where-Object {$_.rel -eq 'volume_snapshots'}).href)
                     }
                     $allSnaps = Invoke-RestMethod -Uri $snapQueryUri -Headers $headers -Method GET -WebSession $webSessions["$account"]
-                    $totalAccountSnaps += $allSnaps.count
+                    $cTotalAccountSnaps += $allSnaps.count
 
                     foreach ($snap in $allSnaps) {
+                        $snapDate = $null
                         $snapDate = Get-Date $snap.created_at
                         $parentVolumeHref = $snap.links | Where-Object {$_.rel -eq 'parent_volume'} | Select-Object -ExpandProperty href
+                        if ($volumeHrefs -notcontains $parentVolumeHref) { 
+                            $parentVolAvailable = "Not Available"
+                        }
+                        else {
+                            $parentVolAvailable = $parentVolumeHref
+                        }
 
-                        if (($volumeHrefs -notcontains $parentVolumeHref) -or ($snapDate -lt $myDate)) { 
-                            if ($volumeHrefs -notcontains $parentVolumeHref) { 
-                                $parentVolAvailable = $parentVolumeHref
-                                $totalAccountSnapsNoParent ++
-                            }
-                            else {
-                                $parentVolAvailable = "Not Available"
-                                $totalAccountSnapsDate ++
-                            }
+                        if ($snapDate -lt $myDate) {     
                             $object = $null
                             $object = New-Object psobject
                             $object | Add-Member -MemberType NoteProperty -Name "Account_ID" -Value $account
@@ -234,15 +232,15 @@ else {
                             $object | Add-Member -MemberType NoteProperty -Name "State" -Value $snap.state
                             $object | Add-Member -MemberType NoteProperty -Name "Parent_Volume" -Value $parentVolAvailable
                             $targetSnaps += $object
+                            $cTotalAccountSnapsDate++
                         }
                     }
                 }
             }
         }
 
-        Write-Output "$account : Total Snapshots Discovered: $totalAccountSnaps"
-        Write-Output "$account : Snapshots w/o an active Parent Volume: $totalAccountSnapsNoParent"
-        Write-Output "$account : Additional snapshots that do not meet the date requirements: $totalAccountSnapsDate"
+        Write-Output "$account : Total Snapshots Discovered: $cTotalAccountSnaps"
+        Write-Output "$account : Snapshots that do not meet the date requirements: $cTotalAccountSnapsDate"
         $allSnapsObject += $targetSnaps  
     }
 }
