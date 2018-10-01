@@ -22,7 +22,7 @@ $headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
 $headers.Add("X_API_VERSION","1.5")
 $webSessions = @{}
 $gAccounts = @{}
-$allSnapsObject = @()
+$allSnapsObject = [System.Collections.ArrayList]@()
 $date_result = 0
 
 ## Create functions
@@ -148,7 +148,7 @@ else {
     }
 
     foreach ($account in $gAccounts.Keys) {
-        $targetSnaps = @()
+        $targetSnaps = [System.Collections.ArrayList]@()
         $totalAccountSnaps = 0
         $totalAccountSnapsNoParent = 0
         $totalAccountSnapsDate = 0
@@ -205,7 +205,6 @@ else {
                     }
                     $allSnaps = Invoke-RestMethod -Uri $snapQueryUri -Headers $headers -Method GET -WebSession $webSessions["$account"]
                     $totalAccountSnaps += $allSnaps.count
-                    $modifiedSnaps += $allSnaps
 
                     foreach ($snap in $allSnaps) {
                         $snapDate = Get-Date $snap.created_at
