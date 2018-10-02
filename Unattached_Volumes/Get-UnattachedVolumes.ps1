@@ -297,17 +297,17 @@ foreach ($account in $accounts) {
             }
         }
     }
-    $allSnapsObject += $targetVolumes
+    $allVolumesObject += $targetVolumes
 }
 
-if ($allSnapsObject.count -gt 0){
+if ($allVolumesObject.count -gt 0){
     if($ExportToCsv) {
         $csv = "$($CustomerName)_unattached-volumes_$($csvTime).csv"
-        $allSnapsObject | Export-Csv "./$csv" -NoTypeInformation
+        $allVolumesObject | Export-Csv "./$csv" -NoTypeInformation
         Write-Host "CSV File: $csv"
     }
     else {
-        $allSnapsObject
+        $allVolumesObject
     }
 }
 else {
