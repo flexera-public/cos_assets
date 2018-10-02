@@ -1,20 +1,46 @@
 # The output of this script will be:
-#   1) All Volume Snapshots whose parent Volume is no longer present
-#   2) All Volume Snapshots whose created_at date is older than the input date specified by the user executing this script
+#   1) All Volume Snapshots whose created_at date is older than the input date specified by the user executing this script
 #
-# AWS Snapshots will include Snapshots that have been SHARED with the AWS Account connected to the target RightScale account.  Use the Cloud_Specific_Attributes field to filter by AWS Account.
-# ARM Snapshots likely won't appear in this report unless they meet the age requirement.  This is because: if an ARM volume is deleted after a snapshot has been taken, the volume is still reported as an available resource.
+# AWS Snapshots will include Snapshots that have been SHARED with the AWS Account connected to the target RightScale account.
+#   Use the Cloud_Specific_Attributes field to filter by AWS Account.
+#
+# ARM Snapshots likely won't appear in this report unless they meet the age requirement.
+#   This is because: if an ARM volume is deleted after a snapshot has been taken, the volume is still reported as an available resource.
+
+[CmdletBinding()]
+param(
+    [System.Management.Automation.PSCredential]$RSCredential,
+    [string]$CustomerName,
+    [string]$Endpoint,
+    [string[]]$Accounts,
+    [datetime]$Date,
+    [bool]$ExportToCsv = $true
+)
 
 ## Check Runtime environment
 if ($PSVersionTable.PSVersion.Major -lt 3) {
     throw "This script requires at least PowerShell 3.0."
 }
 
-$rscreds = Get-Credential
-$customer_name = Read-Host "Enter Customer Name"
-$endpoint = Read-Host "Enter RS API endpoint. Example: us-3.rightscale.com"
-$accounts = Read-Host "Enter comma separated list of RS Account Number(s) or the Parent Account number. Example: 1234,4321,1111"
-$date = Read-Host "Input date for newest allowed volume snapshots (format: YYYY/MM/DD)."
+if ($RSCredential -eq $null) {
+    $RSCredential = Get-Credential -Message "Enter your RightScale credentials" -Title "RightScale Credentials"
+}
+
+if($CustomerName -eq '') {
+    $CustomerName = Read-Host "Enter Customer Name"
+}
+
+if($Endpoint -eq '') {
+    $Endpoint = Read-Host "Enter RS API endpoint (Example: us-3.rightscale.com)"
+}
+
+if($Accounts.Count -eq 0) {
+    $Accounts = Read-Host "Enter comma separated list of RS Account Number(s) or the Parent Account number (Example: 1234,4321,1111)"
+}
+
+if($Date -eq $null) {
+    $Date = Read-Host "Input date for newest allowed volume snapshots (Format: YYYY/MM/DD)"
+}
 
 ## Instantiate variables
 $parent_provided = $false
@@ -32,12 +58,12 @@ function establish_rs_session($account) {
 
     try {
         # Establish a session with RightScale, given an account number
-        Write-Output "$account : Establishing a web session..."
-        Invoke-RestMethod -Uri "https://$endpoint/api/session" -Headers $headers -Method POST -SessionVariable tmpvar -ContentType application/x-www-form-urlencoded -Body "email=$($rscreds.UserName)&password=$($rscreds.GetNetworkCredential().Password)&account_href=/api/accounts/$account" | Out-Null
+        Write-Host "$account : Establishing a web session..."
+        Invoke-RestMethod -Uri "https://$endpoint/api/session" -Headers $headers -Method POST -SessionVariable tmpvar -ContentType application/x-www-form-urlencoded -Body "email=$($RSCredential.UserName)&password=$($RSCredential.GetNetworkCredential().Password)&account_href=/api/accounts/$account" | Out-Null
         $webSessions["$account"] = $tmpvar
     } catch {
-        Write-Output "$account : Unable to establish a session!"
-        Write-Output "$account : StatusCode: " $_.Exception.Response.StatusCode.value__
+        Write-Host "$account : Unable to establish a session!"
+        Write-Host "$account : StatusCode: " $_.Exception.Response.StatusCode.value__
         exit 1
     }
 }
@@ -51,7 +77,7 @@ function retrieve_rs_account_info($account) {
 
     try {
         # Gather information regarding the given RightScale account.
-        Write-Output "$account : Retrieving account information..."
+        Write-Host "$account : Retrieving account information..."
         $accountResults = Invoke-RestMethod -Uri https://$endpoint/api/accounts/$account -Headers $headers -Method GET -WebSession $webSessions["$account"]
         # This retrieves and stores information about the account's owner and endpoint.
         $gAccounts["$account"]['owner'] = "$($accountResults.links | Where-Object { $_.rel -eq 'owner' } | Select-Object -ExpandProperty href | Split-Path -Leaf)"
@@ -64,24 +90,26 @@ function retrieve_rs_account_info($account) {
         }
         $gAccounts["$account"]['endpoint'] = $accountEndpoint
     } catch {
-        Write-Output "$account : Unable to retrieve account information!"
-        Write-Output "$account : StatusCode: " $_.Exception.Response.StatusCode.value__
+        Write-Host "$account : Unable to retrieve account information!"
+        Write-Host "$account : StatusCode: " $_.Exception.Response.StatusCode.value__
         exit 1
     }
 }
 
-$currentTime = Get-Date
-Write-Output "Script Start Time: $currentTime"
-$csvTime = Get-Date -Date $currentTime -Format dd-MMM-yyyy_hhmmss
-$myDate = Get-Date $date
-
-# Convert the comma separated $accounts into a unique array of accounts
-$accounts = $accounts.Split(",") | Get-Unique
-
 if (!([datetime]::TryParse($date,$null,"None",[ref]$date_result))) {
     Write-Warning "Date value not in correct format. Exiting.."
+    EXIT 1
 }
 else {
+    $currentTime = Get-Date
+    Write-Host "Script Start Time: $currentTime"
+    $csvTime = Get-Date -Date $currentTime -Format dd-MMM-yyyy_hhmmss
+    $myDate = Get-Date $date
+    
+    # Convert the comma separated $accounts into a unique array of accounts
+    if($accounts -like '*,*') {
+        [string[]]$accounts = $accounts.Split(",") | Get-Unique
+    }
     
     ## Gather all account information available and set up sessions
     # Assume if only 1 account was provided, it could be a Parent(Organization) Account
@@ -123,16 +151,16 @@ else {
                 }
                 # Add the newly enumerated child accounts back to the list of accounts
                 $accounts = $accounts + $childAccounts
-                Write-Output "$parentAccount : Child accounts have been identified: $childAccounts"
+                Write-Host "$parentAccount : Child accounts have been identified: $childAccounts"
             }
             else {
                 # No child accounts
                 $parent_provided = $false
-                Write-Output "$parentAccount : No child accounts identified."
+                Write-Host "$parentAccount : No child accounts identified."
             }
         } catch {
             # Issue while attempting to pull child accounts, assume this is not a parent account
-            Write-Output "$parentAccount : No child accounts identified."
+            Write-Host "$parentAccount : No child accounts identified."
         }
     }
 
@@ -153,7 +181,6 @@ else {
         $cTotalAccountSnapsDate = 0
 
         # Account Name
-        #$accountName = (./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 show /api/accounts/$account | ConvertFrom-Json) | Select-Object -ExpandProperty name
         $accountName = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])/api/accounts/$account" -Headers $headers -Method GET -WebSession $webSessions["$account"] | Select-Object -ExpandProperty name
 
         # Get Clouds
@@ -161,19 +188,19 @@ else {
             $clouds = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])/api/clouds?account_href=/api/accounts/$account" -Headers $headers -Method GET -WebSession $webSessions["$account"]
         } 
         catch {
-            Write-Output "$account : Unable to pull clouds! It is possible that there are no clouds registered to this account or there is a permissioning issue."
+            Write-Host "$account : Unable to pull clouds! It is possible that there are no clouds registered to this account or there is a permissioning issue."
             CONTINUE
         }
 
         if(($clouds.display_name -like "AWS*").count -gt 0) {
             # Account has AWS connected, get the Account ID
-            Write-Output "$account : AWS Clouds Connected - Retrieving AWS Account IDs..."
-            $originalSessionHeaders = $webSessions["$account"].Headers["X_API_VERSION"]
+            Write-Host "$account : AWS Clouds Connected - Retrieving AWS Account IDs..."
+            $originalAPIVersion = $webSessions["$account"].Headers["X_API_VERSION"]
             $webSessions["$account"].Headers.Remove("X_API_VERSION") | Out-Null
             $cloudAccounts = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])/api/cloud_accounts" -Headers @{"X-Api-Version"="1.6";"X-Account"=$account} -Method GET -WebSession $webSessions["$account"]
             $webSessions["$account"].Headers.Remove("X-Api-Version") | Out-Null
             $webSessions["$account"].Headers.Remove("X-Account") | Out-Null
-            $webSessions["$account"].Headers.Add("X_API_VERSION",$originalSessionHeaders)
+            $webSessions["$account"].Headers.Add("X_API_VERSION",$originalAPIVersion)
 
             if($cloudAccounts){
                 $cloudAccountIds = $cloudAccounts| Where-Object {$_.links.cloud.cloud_type -eq "amazon"} | Select-Object @{Name='href';Expression={$_.links.cloud.href}},tenant_uid
@@ -188,12 +215,12 @@ else {
             $cloudHref = $cloud.links | Where-Object {$_.rel -eq 'self'} | Select-Object -ExpandProperty href
 
             if ($($cloud.links | Where-Object {$_.rel -eq 'volumes'})) {
-                Write-Output "$account : $cloudName : Getting Volume Details..."
+                Write-Host "$account : $cloudName : Getting Volume Details..."
                 $volumes = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])$cloudHref/volumes" -Headers $headers -Method GET -WebSession $webSessions["$account"]
                 $volumeHrefs = $volumes.links | Where-Object { $_.rel -eq 'self'} | Select-Object -ExpandProperty href
 
                 if ($($cloud.links | Where-Object {$_.rel -eq 'volume_snapshots'})) {
-                    Write-Output "$account : $cloudName : Getting Snapshot Details..."
+                    Write-Host "$account : $cloudName : Getting Snapshot Details..."
                     
                     if (($cloud.display_name -like "AWS*") -and ($cloudAccountIds.count -ge 1)) {
                         $cloudAccountId = $cloudAccountIds | Where-Object {$_.href -eq $cloudHref} | Select-Object -ExpandProperty tenant_uid
@@ -239,18 +266,23 @@ else {
             }
         }
 
-        Write-Output "$account : Total Snapshots Discovered: $cTotalAccountSnaps"
-        Write-Output "$account : Snapshots that do not meet the date requirements: $cTotalAccountSnapsDate"
+        Write-Host "$account : Total Snapshots Discovered: $cTotalAccountSnaps"
+        Write-Host "$account : Snapshots that do not meet the date requirements: $cTotalAccountSnapsDate"
         $allSnapsObject += $targetSnaps  
     }
 }
 
 if($allSnapsObject.count -gt 0) {
-    $csv = "$($customer_name)_snapshots_$($csvTime).csv"
-    $allSnapsObject | Export-Csv "./$csv" -NoTypeInformation
-    Write-Output "CSV File: $csv"
+    if($ExportToCsv) {
+        $csv = "$($CustomerName)_snapshots_$($csvTime).csv"
+        $allSnapsObject | Export-Csv "./$csv" -NoTypeInformation
+        Write-Host "CSV File: $csv"
+    }
+    else {
+        $allSnapsObject
+    }
 }
 else {
-    Write-Output "No snapshots found"
+    Write-Host "No snapshots found"
 }
-Write-Output "End time: $(Get-Date)"
+Write-Host "End time: $(Get-Date)"

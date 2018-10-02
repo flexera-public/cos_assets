@@ -1,9 +1,10 @@
 # RightScale Cost Optimization Assets
 This repo contains a library of open source RightScale Cost Optimization Assets.
 
-### Utilization Scripts
+### Instance Utilization
 - [Azure Utilization Script](./Azure/)
 - [AWS Utilization Script](./cw_cpu_avg/)
+- [RightLink Utilization](./RightLink_Utilization/)
 
 
 ### Unattached Volumes
@@ -11,7 +12,7 @@ This repo contains a library of open source RightScale Cost Optimization Assets.
 
 
 ### Snapshots
-- [Get Snapshots Older Than A Date Specified](./Get_Old_Snapshots.ps1/)
+- [Get Snapshots Older Than A Date Specified](./Old_Snapshots/)
 
 
 ## Getting Help
