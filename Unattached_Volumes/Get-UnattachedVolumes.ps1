@@ -13,7 +13,7 @@ if ($PSVersionTable.PSVersion.Major -lt 3) {
 }
 
 if ($RSCredential -eq $null) {
-    $RSCredential = Get-Credential -Message "Enter your RightScale credentials" -Title "RightScale Credentials"
+    $RSCredential = Get-Credential -Message "Enter your RightScale credentials"
 }
 
 if($CustomerName -eq '') {
