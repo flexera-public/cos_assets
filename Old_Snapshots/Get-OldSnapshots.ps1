@@ -58,20 +58,46 @@ function establish_rs_session($account) {
 
     try {
         # Establish a session with RightScale, given an account number
-        Write-Host "$account : Establishing a web session..."
-        Invoke-RestMethod -Uri "https://$endpoint/api/session" -Headers $headers -Method POST -SessionVariable tmpvar -ContentType application/x-www-form-urlencoded -Body "email=$($RSCredential.UserName)&password=$($RSCredential.GetNetworkCredential().Password)&account_href=/api/accounts/$account" | Out-Null
+        Write-Host "$account : Establishing a web session via $endpoint..."
+        Invoke-RestMethod -Uri "https://$endpoint/api/session" -Headers $headers -Method POST -SessionVariable tmpvar -ContentType application/x-www-form-urlencoded -Body "email=$($RSCredential.UserName)&password=$($RSCredential.GetNetworkCredential().Password)&account_href=/api/accounts/$account" -MaximumRedirection 0 | Out-Null
         $webSessions["$account"] = $tmpvar
-    } catch {
-        Write-Host "$account : Unable to establish a session!"
-        Write-Host "$account : StatusCode: " $_.Exception.Response.StatusCode.value__
-        exit 1
+        RETURN $true
+    }
+    catch {
+        if($_.Exception.Response.StatusCode.value__ -eq 302) {
+            # Request is redirected if the incorrect endpoint is used
+            $newEndpoint = $error[0].exception.response.headers.location.host
+            Write-Host "$account : Request redirected to $newEndpoint"
+            try {
+                Write-Host "$account : Establishing a web session via $newEndpoint..."
+                Invoke-RestMethod -Uri "https://$newEndpoint/api/session" -Headers $headers -Method POST -SessionVariable tmpvar -ContentType application/x-www-form-urlencoded -Body "email=$($RSCredential.UserName)&password=$($RSCredential.GetNetworkCredential().Password)&account_href=/api/accounts/$account" -MaximumRedirection 0 | Out-Null
+                $webSessions["$account"] = $tmpvar
+                $gAccounts["$account"]['endpoint'] = $newEndpoint
+                RETURN $true
+            }
+            catch {
+                Write-Host "$account : Unable to establish a session!"
+                Write-Host "$account : StatusCode: " $_.Exception.Response.StatusCode.value__
+                RETURN $false
+            }
+        }
+        else {
+            Write-Host "$account : Unable to establish a session!"
+            Write-Host "$account : StatusCode: " $_.Exception.Response.StatusCode.value__
+            RETURN $false
+        }
     }
 }
 
 # Retrieve account information from RightScale
 function retrieve_rs_account_info($account) {
     # If a session hasn't been established yet, set one up.
-    if($webSessions.Keys -notcontains $account) { establish_rs_session -account $account }
+    if($webSessions.Keys -notcontains $account) { 
+        $sessionResult = establish_rs_session -account $account
+        if ($sessionResult -eq $false) {
+            RETURN $false
+        }
+    }
 
     $endpoint = $gAccounts["$account"]['endpoint']
 
@@ -89,10 +115,11 @@ function retrieve_rs_account_info($account) {
             $accountEndpoint = "us-$cluster.rightscale.com"
         }
         $gAccounts["$account"]['endpoint'] = $accountEndpoint
+        RETURN $true
     } catch {
         Write-Host "$account : Unable to retrieve account information!"
         Write-Host "$account : StatusCode: " $_.Exception.Response.StatusCode.value__
-        exit 1
+        RETURN $false
     }
 }
 
@@ -121,7 +148,8 @@ else {
             # Kickstart the account attributes by giving it the endpoint provided by the user
             $gAccounts["$parentAccount"] = @{'endpoint'="$endpoint"}
             # Establish a session with and gather information about the provided account
-            retrieve_rs_account_info -account $parentAccount
+            $accountInfoResult = retrieve_rs_account_info -account $parentAccount
+            if($accountInfoResult -eq $false) { EXIT 1 }
             # Attempt to pull a list of child accounts (and their account attributes)
             $childAccountsResult = Invoke-RestMethod -Uri "https://$($gAccounts["$parentAccount"]['endpoint'])/api/child_accounts?account_href=/api/accounts/$parentAccount" -Headers $headers -Method GET -WebSession $webSessions["$parentAccount"]
             if($childAccountsResult.count -gt 0) {
@@ -147,7 +175,12 @@ else {
                 $parent_provided = $true
                 # Establish sessions with and gather information about all of the child accounts individually
                 foreach ($childAccount in $childAccounts) {
-                    retrieve_rs_account_info -account $childAccount
+                    $childAccountInfoResult = retrieve_rs_account_info -account $childAccount
+                    if($childAccountsResult -eq $false) {
+                        # To continue, we need to remove it from the hash and the array
+                        $gAccounts.Remove($childAccount)
+                        $childAccounts = $childAccounts | Where-Object {$_ -ne $childAccount}
+                    }
                 }
                 # Add the newly enumerated child accounts back to the list of accounts
                 $accounts = $accounts + $childAccounts
@@ -171,8 +204,18 @@ else {
             $gAccounts["$account"] = @{'endpoint'="$endpoint"}
     
             # Attempt to establish sessions with the provided accounts and gather the relevant information
-            retrieve_rs_account_info -account $account
+            $accountInfoResult = retrieve_rs_account_info -account $account
+            if($accountInfoResult -eq $false) {
+                # To continue, we need to remove it from the hash and the array
+                $gAccounts.Remove($account)
+                $accounts = $accounts | Where-Object {$_ -ne $account}
+            }
         }
+    }
+
+    if($gAccounts.Keys.count -eq 0) {
+        Write-Host "No accounts left to use!"
+        EXIT 1
     }
 
     foreach ($account in $gAccounts.Keys) {
