@@ -208,18 +208,23 @@ if($gAccounts.Keys.count -eq 0) {
 }
 
 foreach ($account in $accounts) {
-    $targetVolumes = [System.Collections.ArrayList]@()
-    $account = $account.Trim()
-    
     # Account Name
-    $accountName = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])/api/accounts/$account" -Headers $headers -Method GET -WebSession $webSessions["$account"] | Select-Object -ExpandProperty name
-    
+    try {
+        $accountName = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])/api/accounts/$account" -Headers $headers -Method GET -WebSession $webSessions["$account"] | Select-Object -ExpandProperty name
+    }
+    catch {
+        Write-Warning "$account : ERROR - Unable to retrieve account name!"
+        Write-Warning "$account : ERROR - StatusCode: " $_.Exception.Response.StatusCode.value__
+        $accountName = "Unknown"
+    }
+
     # Get Clouds
     try {
         $clouds = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])/api/clouds?account_href=/api/accounts/$account" -Headers $headers -Method GET -WebSession $webSessions["$account"]
     } 
     catch {
-        Write-Warning "$account : Unable to pull clouds! It is possible that there are no clouds registered to this account or there is a permissioning issue."
+        Write-Warning "$account : ERROR - Unable to retrieve clouds! It is possible that there are no clouds registered to this account or there is a permissioning issue."
+        Write-Warning "$account : ERROR - StatusCode: " $_.Exception.Response.StatusCode.value__
         CONTINUE
     }
 
@@ -230,7 +235,15 @@ foreach ($account in $accounts) {
         Write-Verbose "$account : AWS, Azure, or Google Clouds Connected - Retrieving Account IDs..."
         $originalAPIVersion = $webSessions["$account"].Headers["X_API_VERSION"]
         $webSessions["$account"].Headers.Remove("X_API_VERSION") | Out-Null
-        $cloudAccounts = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])/api/cloud_accounts" -Headers @{"X-Api-Version"="1.6";"X-Account"=$account} -Method GET -WebSession $webSessions["$account"]
+        
+        try {
+            $cloudAccounts = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])/api/cloud_accounts" -Headers @{"X-Api-Version"="1.6";"X-Account"=$account} -Method GET -WebSession $webSessions["$account"]
+        }
+        catch {
+            Write-Warning "$account : ERROR - Unable to retrieve cloud account IDs!"
+            Write-Warning "$account : ERROR - StatusCode: " $_.Exception.Response.StatusCode.value__
+        }
+
         $webSessions["$account"].Headers.Remove("X-Api-Version") | Out-Null
         $webSessions["$account"].Headers.Remove("X-Account") | Out-Null
         $webSessions["$account"].Headers.Add("X_API_VERSION",$originalAPIVersion)
@@ -248,15 +261,29 @@ foreach ($account in $accounts) {
         $cloudHref = $cloud.links | Where-Object {$_.rel -eq 'self'} | Select-Object -ExpandProperty href
 
         if($cloudName -like "AzureRM*") {
-            $volumeTypes = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])$($cloud.links | Where-Object { $_.rel -eq 'volume_types' } | Select-Object -ExpandProperty href)" -Headers $headers -Method GET -WebSession $webSessions["$account"]
+            try {
+                $volumeTypes = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])$($cloud.links | Where-Object { $_.rel -eq 'volume_types' } | Select-Object -ExpandProperty href)" -Headers $headers -Method GET -WebSession $webSessions["$account"]
+            }
+            catch {
+                Write-Warning "$account : $cloudName : ERROR - Unable to retrieve volumes types!"
+                Write-Warning "$account : $cloudName : ERROR - StatusCode: " $_.Exception.Response.StatusCode.value__
+            }
             $volumeTypes = $volumeTypes | Select-Object name, resource_uid, @{n='href';e={$_.links | Where-Object {$_.rel -eq 'self'}| Select-Object -ExpandProperty href}}
         }
 
         if ($($cloud.links | Where-Object { $_.rel -eq 'volumes'})) {                                                                              
             $volumes = @()
             Write-Verbose "$account : $cloudName : Getting Volumes..."
-            $volumes = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])$cloudHref/volumes?view=extended" -Headers $headers -Method GET -WebSession $webSessions["$account"]
-            
+
+            try {
+                $volumes = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])$cloudHref/volumes?view=extended" -Headers $headers -Method GET -WebSession $webSessions["$account"]
+            }
+            catch {
+                Write-Warning "$account : $cloudName : ERROR - Unable to retrieve volumes!"
+                Write-Warning "$account : $cloudName : ERROR - StatusCode: " $_.Exception.Response.StatusCode.value__
+                CONTINUE
+            }
+
             if(!($volumes)) {
                 Write-Verbose "$account : $cloudName : No Volumes Found!"
                 CONTINUE
@@ -264,9 +291,15 @@ foreach ($account in $accounts) {
             else {
                 foreach ($volume in $volumes) {
                     if (($volume.status -eq "available") -and ($volume.resource_uid -notlike "*system@Microsoft.Compute/Images/*") -and ($volume.resource_uid -notlike "*@images*")) {
-                        Write-Verbose "$account : $cloudName : $($volume.name) - $($volume.resource_uid) : Unattached"
+                        Write-Verbose "$account : $cloudName : $($volume.name) : Unattached"
                         $volumeHref = $($volume.links | Where-Object rel -eq "self").href
-                        $volumeTags = Invoke-RestMethod -Uri https://$($gAccounts["$account"]['endpoint'])/api/tags/by_resource -Headers $headers -Method POST -WebSession $webSessions["$account"] -ContentType application/x-www-form-urlencoded -Body "email=$($RSCredential.UserName)&password=$($RSCredential.GetNetworkCredential().Password)&account_href=/api/accounts/$account&resource_hrefs[]=$volumeHref"
+                        try {
+                            $volumeTags = Invoke-RestMethod -Uri https://$($gAccounts["$account"]['endpoint'])/api/tags/by_resource -Headers $headers -Method POST -WebSession $webSessions["$account"] -ContentType application/x-www-form-urlencoded -Body "email=$($RSCredential.UserName)&password=$($RSCredential.GetNetworkCredential().Password)&account_href=/api/accounts/$account&resource_hrefs[]=$volumeHref"
+                        }
+                        catch {
+                            Write-Warning "$account : $cloudName : $($volume.name) : ERROR - Unable to retrieve Volume tags!"
+                            Write-Warning "$account : $cloudName : $($volume.name) : ERROR - StatusCode: " $_.Exception.Response.StatusCode.value__
+                        }
                         
                         if($cloudName -like "AzureRM*") {
                             $volumeTypeHref = $volume.links | Where-Object { $_.rel -eq "volume_type" } | Select-Object -ExpandProperty href
@@ -275,15 +308,27 @@ foreach ($account in $accounts) {
                             if($placementGroupHref) {
                                 $placementGroupTags = @()
                                 $armDiskType = "Unmanaged"
-                                $placementGroup = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])$($placementGroupHref)?view=extended" -Headers $headers -Method GET -WebSession $webSessions["$account"]
+                                try {
+                                    $placementGroup = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])$($placementGroupHref)?view=extended" -Headers $headers -Method GET -WebSession $webSessions["$account"]
+                                }
+                                catch {
+                                    Write-Warning "$account : $cloudName : $($volume.name) : ERROR - Unable to retrieve Placement Group!"
+                                    Write-Warning "$account : $cloudName : $($volume.name) : ERROR - StatusCode: " $_.Exception.Response.StatusCode.value__
+                                }
                                 
                                 if ($placementGroup) {
                                     $armStorageType = $placementGroup.cloud_specific_attributes.account_type
                                     $armResourceGroup = $placementGroup.cloud_specific_attributes.'Resource Group'
-                                    $placementGroupTags = Invoke-RestMethod -Uri https://$($gAccounts["$account"]['endpoint'])/api/tags/by_resource -Headers $headers -Method POST -WebSession $webSessions["$account"] -ContentType application/x-www-form-urlencoded -Body "email=$($RSCredential.UserName)&password=$($RSCredential.GetNetworkCredential().Password)&account_href=/api/accounts/$account&resource_hrefs[]=$placementGroupHref"
+                                    try {
+                                        $placementGroupTags = Invoke-RestMethod -Uri https://$($gAccounts["$account"]['endpoint'])/api/tags/by_resource -Headers $headers -Method POST -WebSession $webSessions["$account"] -ContentType application/x-www-form-urlencoded -Body "email=$($RSCredential.UserName)&password=$($RSCredential.GetNetworkCredential().Password)&account_href=/api/accounts/$account&resource_hrefs[]=$placementGroupHref"
+                                    }
+                                    catch {
+                                        Write-Warning "$account : $cloudName : $($volume.name) : ERROR - Unable to retrieve Placement Group tags!"
+                                        Write-Warning "$account : $cloudName : $($volume.name) : ERROR - StatusCode: " $_.Exception.Response.StatusCode.value__
+                                    }
                                 }
                                 else {
-                                    Write-Verbose "$account : $cloudName : $($volume.name) - $($volume.resource_uid) : ERROR retrieving Placement Group!!"
+                                    Write-Warning "$account : $cloudName : $($volume.name) : Unable to retrieve Placement Group!"
                                     $armStorageType = "ERROR"
                                     $armResourceGroup = "Unknown"
                                 }
@@ -321,27 +366,28 @@ foreach ($account in $accounts) {
                         }
 
                         $object = [pscustomobject]@{
-                            "RS_Account_ID"             = $account
-                            "Cloud_Account_ID"          = $($cloudAccountIds | Where-Object {$_.href -eq $cloudHref} | Select-Object -ExpandProperty tenant_uid)
-                            "Cloud"                     = $cloudName
-                            "Volume_Name"               = $volume.name
-                            "Description"               = $volume.description
-                            "Volume_Type_Href"          = $volume.volume_type_href
-                            "IOPS"                      = $volume.iops
-                            "Resource_UID"              = $volume.resource_uid
-                            "Size"                      = $volume.size
-                            "Status"                    = $volume.status
-                            "Azure_Disk_Type"           = $armDiskType
-                            "Azure_Storage_Type"        = $armStorageType
-                            "Azure_Storage_Account"     = $armStorageAccountName
-                            "Azure_Resource_Group"      = $armResourceGroup
-                            "Created_At"                = $volume.created_at
-                            "Updated_At"                = $volume.updated_at
-                            "Cloud_Specific_Attributes" = $volume.cloud_specific_attributes
-                            "Href"                      = $volumeHref
-                            "Tags"                      = "`"$($volumeTags.tags.name -join '","')`""
+                            "Account_ID"                = $account;
+                            "Account_Name"              = $accountName;
+                            "Cloud_Account_ID"          = $($cloudAccountIds | Where-Object {$_.href -eq $cloudHref} | Select-Object -ExpandProperty tenant_uid);
+                            "Cloud"                     = $cloudName;
+                            "Volume_Name"               = $volume.name;
+                            "Description"               = $volume.description;
+                            "Resource_UID"              = $volume.resource_uid;
+                            "Volume_Type_Href"          = $volume.volume_type_href;
+                            "IOPS"                      = $volume.iops;
+                            "Size"                      = $volume.size;
+                            "Status"                    = $volume.status;
+                            "Azure_Disk_Type"           = $armDiskType;
+                            "Azure_Storage_Type"        = $armStorageType;
+                            "Azure_Storage_Account"     = $armStorageAccountName;
+                            "Azure_Resource_Group"      = $armResourceGroup;
+                            "Created_At"                = $volume.created_at;
+                            "Updated_At"                = $volume.updated_at;
+                            "Cloud_Specific_Attributes" = $volume.cloud_specific_attributes;
+                            "Href"                      = $volumeHref;
+                            "Tags"                      = "`"$($volumeTags.tags.name -join '","')`"";
                         }
-                        $targetVolumes += $object
+                        $allVolumesObject += $object
                     }
                     else {
                         Write-Verbose "$account : $cloudName : $($volume.name) - $($volume.resource_uid) : Attached"
@@ -350,7 +396,6 @@ foreach ($account in $accounts) {
             }
         }
     }
-    $allVolumesObject += $targetVolumes
 }
 
 if ($allVolumesObject.count -gt 0){
@@ -365,6 +410,6 @@ if ($allVolumesObject.count -gt 0){
     }
 }
 else {
-    Write-Host "No unattached volumes found!"
+    Write-Host "No Unattached Volumes Found!"
 }
 Write-Verbose "Script End Time: $(Get-Date)"

@@ -225,34 +225,51 @@ else {
 
     foreach ($account in $gAccounts.Keys) {
         Write-Verbose "$account : Starting..."
-        $targetSnaps = [System.Collections.ArrayList]@()
         $cTotalAccountSnaps = 0
         $cTotalAccountSnapsDate = 0
 
         # Account Name
-        $accountName = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])/api/accounts/$account" -Headers $headers -Method GET -WebSession $webSessions["$account"] | Select-Object -ExpandProperty name
+        try {
+            $accountName = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])/api/accounts/$account" -Headers $headers -Method GET -WebSession $webSessions["$account"] | Select-Object -ExpandProperty name
+        }
+        catch {
+            Write-Warning "$account : ERROR - Unable to retrieve account name"
+            Write-Warning "$account : ERROR - StatusCode: " $_.Exception.Response.StatusCode.value__
+            $accountName = "Unknown"
+        }
 
         # Get Clouds
         try {
             $clouds = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])/api/clouds?account_href=/api/accounts/$account" -Headers $headers -Method GET -WebSession $webSessions["$account"]
         } 
         catch {
-            Write-Warning "$account : Unable to pull clouds! It is possible that there are no clouds registered to this account or there is a permissioning issue."
+            Write-Warning "$account : ERROR - Unable to retrieve clouds! It is possible that there are no clouds registered to this account or there is a permissioning issue."
+            Write-Warning "$account : ERROR - StatusCode: " $_.Exception.Response.StatusCode.value__
             CONTINUE
         }
 
-        if(($clouds.display_name -like "AWS*").count -gt 0) {
-            # Account has AWS connected, get the Account ID
-            Write-Verbose "$account : AWS Clouds Connected - Retrieving AWS Account IDs..."
+        if((($clouds.display_name -like "AWS*").count -gt 0) -or
+            (($clouds.display_name -like "Azure*").count -gt 0) -or
+            (($clouds.display_name -like "Google*").count -gt 0)){
+            # Account has AWS, Azure, or Google connected, get the Account ID
+            Write-Verbose "$account : AWS, Azure, or Google Clouds Connected - Retrieving Account IDs..."
             $originalAPIVersion = $webSessions["$account"].Headers["X_API_VERSION"]
             $webSessions["$account"].Headers.Remove("X_API_VERSION") | Out-Null
-            $cloudAccounts = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])/api/cloud_accounts" -Headers @{"X-Api-Version"="1.6";"X-Account"=$account} -Method GET -WebSession $webSessions["$account"]
+            
+            try {
+                $cloudAccounts = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])/api/cloud_accounts" -Headers @{"X-Api-Version"="1.6";"X-Account"=$account} -Method GET -WebSession $webSessions["$account"]
+            }
+            catch {
+                Write-Warning "$account : ERROR - Unable to retrieve cloud account IDs!"
+                Write-Warning "$account : ERROR - StatusCode: " $_.Exception.Response.StatusCode.value__
+            }
+
             $webSessions["$account"].Headers.Remove("X-Api-Version") | Out-Null
             $webSessions["$account"].Headers.Remove("X-Account") | Out-Null
             $webSessions["$account"].Headers.Add("X_API_VERSION",$originalAPIVersion)
 
             if($cloudAccounts){
-                $cloudAccountIds = $cloudAccounts| Where-Object {$_.links.cloud.cloud_type -eq "amazon"} | Select-Object @{Name='href';Expression={$_.links.cloud.href}},tenant_uid
+                $cloudAccountIds = $cloudAccounts | Select-Object @{Name='href';Expression={$_.links.cloud.href}},tenant_uid
             }
         }
         else {
@@ -264,11 +281,22 @@ else {
             $cloudHref = $cloud.links | Where-Object {$_.rel -eq 'self'} | Select-Object -ExpandProperty href
 
             if ($($cloud.links | Where-Object {$_.rel -eq 'volumes'})) {
-                Write-Verbose "$account : $cloudName : Getting Volume Details..."
-                $volumes = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])$cloudHref/volumes" -Headers $headers -Method GET -WebSession $webSessions["$account"]
+                $volumes = @()
+                Write-Verbose "$account : $cloudName : Getting Volumes..."
+
+                try {
+                    $volumes = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])$cloudHref/volumes" -Headers $headers -Method GET -WebSession $webSessions["$account"]
+                }
+                catch {
+                    Write-Warning "$account : $cloudName : ERROR - Unable to retrieve volumes!"
+                    Write-Warning "$account : $cloudName : ERROR - StatusCode: " $_.Exception.Response.StatusCode.value__
+                    CONTINUE
+                }
+
                 $volumeHrefs = $volumes.links | Where-Object { $_.rel -eq 'self'} | Select-Object -ExpandProperty href
 
                 if ($($cloud.links | Where-Object {$_.rel -eq 'volume_snapshots'})) {
+                    $allSnaps = @()
                     Write-Verbose "$account : $cloudName : Getting Snapshot Details..."
                     
                     if (($cloud.display_name -like "AWS*") -and ($cloudAccountIds.count -ge 1)) {
@@ -278,13 +306,23 @@ else {
                     else {
                         $snapQueryUri = "https://" + $($gAccounts["$account"]['endpoint']) + $(($cloud.links | Where-Object {$_.rel -eq 'volume_snapshots'}).href)
                     }
-                    $allSnaps = Invoke-RestMethod -Uri $snapQueryUri -Headers $headers -Method GET -WebSession $webSessions["$account"]
+                    
+                    try {
+                        $allSnaps = Invoke-RestMethod -Uri $snapQueryUri -Headers $headers -Method GET -WebSession $webSessions["$account"]
+                    }
+                    catch {
+                        Write-Warning "$account : $cloudName : ERROR - Unable to retrieve Snapshots!"
+                        Write-Warning "$account : $cloudName : ERROR - StatusCode: " $_.Exception.Response.StatusCode.value__
+                    }
+                    
                     $cTotalAccountSnaps += $allSnaps.count
 
                     foreach ($snap in $allSnaps) {
                         $snapDate = $null
                         $snapDate = Get-Date $snap.created_at
                         $parentVolumeHref = $snap.links | Where-Object {$_.rel -eq 'parent_volume'} | Select-Object -ExpandProperty href
+                        $snapshotHref = $($snap.links | Where-Object rel -eq "self").href
+                        
                         if ($volumeHrefs -notcontains $parentVolumeHref) { 
                             $parentVolAvailable = "Not Available"
                         }
@@ -293,31 +331,40 @@ else {
                         }
 
                         if ($snapDate -lt $myDate) {
+                            try {
+                                $taginfo = Invoke-RestMethod -Uri https://$($gAccounts["$account"]['endpoint'])/api/tags/by_resource -Headers $headers -Method POST -WebSession $webSessions["$account"] -ContentType application/x-www-form-urlencoded -Body "email=$($RSCredential.UserName)&password=$($RSCredential.GetNetworkCredential().Password)&account_href=/api/accounts/$account&resource_hrefs[]=$snapshotHref"
+                            }
+                            catch {
+                                Write-Warning "$account : $cloudName : $($snap.name) : ERROR - Unable to retrieve Snapshot tags!"
+                                Write-Warning "$account : $cloudName : $($snap.name) : ERROR - StatusCode: " $_.Exception.Response.StatusCode.value__
+                            }
+                            
                             $object = [pscustomobject]@{
                                 "Account_ID"                = $account;
                                 "Account_Name"              = $accountName;
+                                "Cloud_Account_ID"          = $($cloudAccountIds | Where-Object {$_.href -eq $cloudHref} | Select-Object -ExpandProperty tenant_uid);
                                 "Cloud"                     = $cloudName;
-                                "Name"                      = $snap.name;
+                                "Snapshot_Name"             = $snap.name;
+                                "Description"               = $snap.description;
                                 "Resource_UID"              = $snap.resource_uid;
                                 "Size"                      = $snap.size;
-                                "Description"               = $snap.description;
                                 "Started_At"                = $snap.created_at;
                                 "Updated_At"                = $snap.updated_at;
                                 "Cloud_Specific_Attributes" = $snap.cloud_specific_attributes ;
                                 "State"                     = $snap.state;
                                 "Parent_Volume"             = $parentVolAvailable;
+                                "Href"                      = $snapshotHref;
+                                "Tags"                      = "`"$($taginfo.tags.name -join '","')`"";
                             }
-                            $targetSnaps += $object
+                            $allSnapsObject += $object
                             $cTotalAccountSnapsDate++
                         }
                     }
                 }
             }
         }
-
         Write-Verbose "$account : Total Snapshots Discovered: $cTotalAccountSnaps"
         Write-Verbose "$account : Snapshots that do not meet the date requirements: $cTotalAccountSnapsDate"
-        $allSnapsObject += $targetSnaps  
     }
 }
 
@@ -333,6 +380,6 @@ if($allSnapsObject.count -gt 0) {
     }
 }
 else {
-    Write-Host "No snapshots found"
+    Write-Host "No Snapshots Found"
 }
 Write-Verbose "End time: $(Get-Date)"
