@@ -2,10 +2,6 @@
 # If only a parent account/org account number is provided it will attempt to gather metrics from all child accounts.
 # This script requires enterprise_manager permissions on the parent and observer permissions on the child accounts
 
-# Known Issues:
-# 1. If a client provides a comma separated list of RS account numbers that have different
-#    endpoints, this script will fail to run because it cannot properly setup the web sessions.
-
 [CmdletBinding()]
 param(
     [System.Management.Automation.PSCredential]$RSCredential,
@@ -297,20 +293,20 @@ foreach ($account in $gAccounts.Keys) {
                 }
 
                 $object = [pscustomobject]@{
-                "Account_ID"        = $account;
-                "Account_Name"      = $accountName;
-                "Cloud_Account_ID"  = $($cloudAccountIds | Where-Object {$_.href -eq $cloudHref} | Select-Object -ExpandProperty tenant_uid);
-                "Cloud"             = $cloudName;
-                "Instance_Name"     = $instance.name;
-                "Resource_UID"      = $instance.resource_uid;
-                "Private_IPs"       = ($instance.private_ip_addresses -join " ");
-                "Public_IPs"        = ($instance.public_ip_addresses -join " ");
-                "State"             = $instance.state;
-                "OS_Platform"       = $instance.os_platform;
-                "Resource_Group"    = $instance.cloud_specific_attributes.resource_group;
-                "Availability_Set"  = $instance.cloud_specific_attributes.availability_set;
-                "Href"              = $instanceHref;
-                "Tags"              = "`"$($taginfo.tags.name -join '","')`"";
+                    "Account_ID"        = $account;
+                    "Account_Name"      = $accountName;
+                    "Cloud_Account_ID"  = $($cloudAccountIds | Where-Object {$_.href -eq $cloudHref} | Select-Object -ExpandProperty tenant_uid);
+                    "Cloud"             = $cloudName;
+                    "Instance_Name"     = $instance.name;
+                    "Resource_UID"      = $instance.resource_uid;
+                    "Private_IPs"       = ($instance.private_ip_addresses -join " ");
+                    "Public_IPs"        = ($instance.public_ip_addresses -join " ");
+                    "State"             = $instance.state;
+                    "OS_Platform"       = $instance.os_platform;
+                    "Resource_Group"    = $instance.cloud_specific_attributes.resource_group;
+                    "Availability_Set"  = $instance.cloud_specific_attributes.availability_set;
+                    "Href"              = $instanceHref;
+                    "Tags"              = "`"$($taginfo.tags.name -join '","')`"";
                 }
                 $instancesDetail += $object
             }
