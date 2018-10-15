@@ -66,13 +66,13 @@ function establish_rs_session($account) {
             }
             catch {
                 Write-Warning "$account : Unable to establish a session!"
-                Write-Warning "$account : StatusCode: " $_.Exception.Response.StatusCode.value__
+                Write-Warning "$account : StatusCode: $($_.Exception.Response.StatusCode.value__)"
                 RETURN $false
             }
         }
         else {
             Write-Warning "$account : Unable to establish a session!"
-            Write-Warning "$account : StatusCode: " $_.Exception.Response.StatusCode.value__
+            Write-Warning "$account : StatusCode: $($_.Exception.Response.StatusCode.value__)"
             RETURN $false
         }
     }
@@ -107,7 +107,7 @@ function retrieve_rs_account_info($account) {
         RETURN $true
     } catch {
         Write-Warning "$account : Unable to retrieve account information!"
-        Write-Warning "$account : StatusCode: " $_.Exception.Response.StatusCode.value__
+        Write-Warning "$account : StatusCode: $($_.Exception.Response.StatusCode.value__)"
         RETURN $false
     }
 }
@@ -216,7 +216,7 @@ foreach ($account in $gAccounts.Keys) {
     }
     catch {
         Write-Warning "$account : ERROR - Unable to retrieve account name!"
-        Write-Warning "$account : ERROR - StatusCode: " $_.Exception.Response.StatusCode.value__
+        Write-Warning "$account : ERROR - StatusCode: $($_.Exception.Response.StatusCode.value__)"
         $accountName = "Unknown"
     }
 
@@ -226,7 +226,7 @@ foreach ($account in $gAccounts.Keys) {
     } 
     catch {
         Write-Warning "$account : ERROR - Unable to retrieve clouds! It is possible that there are no clouds registered to this account or there is a permissioning issue."
-        Write-Warning "$account : ERROR - StatusCode: " $_.Exception.Response.StatusCode.value__
+        Write-Warning "$account : ERROR - StatusCode: $($_.Exception.Response.StatusCode.value__)"
         CONTINUE
     }
 
@@ -243,7 +243,7 @@ foreach ($account in $gAccounts.Keys) {
         }
         catch {
             Write-Warning "$account : ERROR - Unable to retrieve cloud account IDs!"
-            Write-Warning "$account : ERROR - StatusCode: " $_.Exception.Response.StatusCode.value__
+            Write-Warning "$account : ERROR - StatusCode: $($_.Exception.Response.StatusCode.value__)"
         }
 
         $webSessions["$account"].Headers.Remove("X-Api-Version") | Out-Null
@@ -269,7 +269,7 @@ foreach ($account in $gAccounts.Keys) {
         } 
         catch {
             Write-Warning "$account : $cloudName : ERROR - Unable to retrieve instances!"
-            Write-Warning "$account : $cloudName : ERROR - StatusCode: " $_.Exception.Response.StatusCode.value__
+            Write-Warning "$account : $cloudName : ERROR - StatusCode: $($_.Exception.Response.StatusCode.value__)"
             CONTINUE
         }
 
@@ -289,7 +289,7 @@ foreach ($account in $gAccounts.Keys) {
                 } 
                 catch {
                     Write-Warning "$account : $cloudName : $($instance.name) : ERROR - Unable to pull tag information"
-                    Write-Warning "$account : $cloudName : $($instance.name) : ERROR - StatusCode: " $_.Exception.Response.StatusCode.value__
+                    Write-Warning "$account : $cloudName : $($instance.name) : ERROR - StatusCode: $($_.Exception.Response.StatusCode.value__)"
                 }
 
                 $object = [pscustomobject]@{
