@@ -65,14 +65,12 @@ function establish_rs_session($account) {
                 RETURN $true
             }
             catch {
-                Write-Warning "$account : Unable to establish a session!"
-                Write-Warning "$account : StatusCode: " $_.Exception.Response.StatusCode.value__
+                Write-Warning "$account : Unable to establish a session! StatusCode: $($_.Exception.Response.StatusCode.value__)"
                 RETURN $false
             }
         }
         else {
-            Write-Warning "$account : Unable to establish a session!"
-            Write-Warning "$account : StatusCode: " $_.Exception.Response.StatusCode.value__
+            Write-Warning "$account : Unable to establish a session! StatusCode: $($_.Exception.Response.StatusCode.value__)"
             RETURN $false
         }
     }
@@ -106,8 +104,7 @@ function retrieve_rs_account_info($account) {
         $gAccounts["$account"]['endpoint'] = $accountEndpoint
         RETURN $true
     } catch {
-        Write-Warning "$account : Unable to retrieve account information!"
-        Write-Warning "$account : StatusCode: " $_.Exception.Response.StatusCode.value__
+        Write-Warning "$account : Unable to retrieve account information! StatusCode: $($_.Exception.Response.StatusCode.value__)"
         RETURN $false
     }
 }
@@ -215,8 +212,7 @@ foreach ($account in $gAccounts.Keys) {
         $accountName = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])/api/accounts/$account" -Headers $headers -Method GET -WebSession $webSessions["$account"] | Select-Object -ExpandProperty name
     }
     catch {
-        Write-Warning "$account : ERROR - Unable to retrieve account name!"
-        Write-Warning "$account : ERROR - StatusCode: " $_.Exception.Response.StatusCode.value__
+        Write-Warning "$account : Unable to retrieve account name! StatusCode: $($_.Exception.Response.StatusCode.value__)"
         $accountName = "Unknown"
     }
 
@@ -225,8 +221,7 @@ foreach ($account in $gAccounts.Keys) {
         $clouds = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])/api/clouds?account_href=/api/accounts/$account" -Headers $headers -Method GET -WebSession $webSessions["$account"]
     } 
     catch {
-        Write-Warning "$account : ERROR - Unable to retrieve clouds! It is possible that there are no clouds registered to this account or there is a permissioning issue."
-        Write-Warning "$account : ERROR - StatusCode: " $_.Exception.Response.StatusCode.value__
+        Write-Warning "$account : Unable to retrieve clouds! StatusCode: $($_.Exception.Response.StatusCode.value__)"
         CONTINUE
     }
 
@@ -242,8 +237,7 @@ foreach ($account in $gAccounts.Keys) {
             $cloudAccounts = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])/api/cloud_accounts" -Headers @{"X-Api-Version"="1.6";"X-Account"=$account} -Method GET -WebSession $webSessions["$account"]
         }
         catch {
-            Write-Warning "$account : ERROR - Unable to retrieve cloud account IDs!"
-            Write-Warning "$account : ERROR - StatusCode: " $_.Exception.Response.StatusCode.value__
+            Write-Warning "$account : Unable to retrieve cloud account IDs! StatusCode: $($_.Exception.Response.StatusCode.value__)"
         }
 
         $webSessions["$account"].Headers.Remove("X-Api-Version") | Out-Null
@@ -268,8 +262,7 @@ foreach ($account in $gAccounts.Keys) {
             $instances = Invoke-RestMethod -Uri https://$($gAccounts["$account"]['endpoint'])$cloudHref/instances?view=extended -Headers $headers -Method GET -WebSession $webSessions["$account"]
         } 
         catch {
-            Write-Warning "$account : $cloudName : ERROR - Unable to retrieve instances!"
-            Write-Warning "$account : $cloudName : ERROR - StatusCode: " $_.Exception.Response.StatusCode.value__
+            Write-Warning "$account : $cloudName : Unable to retrieve instances! StatusCode: $($_.Exception.Response.StatusCode.value__)"
             CONTINUE
         }
 
@@ -288,8 +281,7 @@ foreach ($account in $gAccounts.Keys) {
                     $taginfo = Invoke-RestMethod -Uri https://$($gAccounts["$account"]['endpoint'])/api/tags/by_resource -Headers $headers -Method POST -WebSession $webSessions["$account"] -ContentType application/x-www-form-urlencoded -Body "email=$($RSCredential.UserName)&password=$($RSCredential.GetNetworkCredential().Password)&account_href=/api/accounts/$account&resource_hrefs[]=$instanceHref"
                 } 
                 catch {
-                    Write-Warning "$account : $cloudName : $($instance.name) : ERROR - Unable to pull tag information"
-                    Write-Warning "$account : $cloudName : $($instance.name) : ERROR - StatusCode: " $_.Exception.Response.StatusCode.value__
+                    Write-Warning "$account : $cloudName : $($instance.name) : Unable to pull tag information. StatusCode: $($_.Exception.Response.StatusCode.value__)"
                 }
 
                 $object = [pscustomobject]@{
