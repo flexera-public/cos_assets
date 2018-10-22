@@ -112,13 +112,12 @@ $csvTime = Get-Date -Date $currentTime -Format dd-MMM-yyyy_hhmmss
 
 # Convert the comma separated $accounts into a unique array of accounts
 if($accounts -like '*,*') {
-    [string[]]$accounts = $accounts.Split(",") | Get-Unique
+    [string[]]$accounts = $accounts.Split(",")
 }
 
-# Convert the comma separated $accounts into a unique array of accounts
-if($accounts -like '*,*') {
-    [string[]]$accounts = $accounts.Split(",") | Get-Unique
-}
+# Ensure there are no duplicates
+[string[]]$accounts = $accounts | Sort-Object | Get-Unique
+
 
 ## Gather all account information available and set up sessions
 # Assume if only 1 account was provided, it could be a Parent(Organization) Account
