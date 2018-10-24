@@ -1,31 +1,40 @@
+# Source: https://github.com/rs-services/cos_assets
+
 [CmdletBinding()]
 param(
     [System.Management.Automation.PSCredential]$RSCredential,
+    [alias("ReportName")]
     [string]$CustomerName,
     [string]$Endpoint,
+    [string]$OrganizationID,
+    [alias("ParentAccount")]
     [string[]]$Accounts,
     [bool]$ExportToCsv = $true
 )
 
 ## Check Runtime environment
-if ($PSVersionTable.PSVersion.Major -lt 3) {
+if($PSVersionTable.PSVersion.Major -lt 3) {
     throw "This script requires at least PowerShell 3.0."
 }
 
-if ($RSCredential -eq $null) {
+if($RSCredential -eq $null) {
     $RSCredential = Get-Credential -Message "Enter your RightScale credentials"
 }
 
-if($CustomerName -eq '') {
-    $CustomerName = Read-Host "Enter Customer Name"
+if($CustomerName.Length -eq 0) {
+    $CustomerName = Read-Host "Enter Customer/Report Name"
 }
 
-if($Endpoint -eq '') {
+if($Endpoint.Length -eq 0) {
     $Endpoint = Read-Host "Enter RS API endpoint (Example: us-3.rightscale.com)"
 }
 
-if($Accounts.count -eq 0) {
-    $Accounts = Read-Host "Enter comma separated list of RS Account Number(s) or the Parent Account number (Example: 1234,4321,1111)"
+if($OrganizationID.Length -eq 0) {
+    $OrganizationID = Read-Host "Enter the Organization ID to gather details from all child accounts. Enter 0 or Leave blank to skip"
+}
+
+if($Accounts.Count -eq 0) {
+    $Accounts = Read-Host "Enter comma separated list of RS Account Number(s), or Parent Account number if Organization ID was specified (Example: 1234,4321,1111)"
 }
 
 ## Instantiate variables
@@ -116,13 +125,12 @@ if($accounts -like '*,*') {
 }
 
 # Ensure there are no duplicates
-[string[]]$accounts = $accounts | Sort-Object | Get-Unique
-
+[string[]]$accounts = $accounts.Trim() | Sort-Object | Get-Unique
 
 ## Gather all account information available and set up sessions
 # Assume if only 1 account was provided, it could be a Parent(Organization) Account
 # Try to collect Child(Projects) accounts
-if($accounts.Count -eq 1) {
+if(($accounts.Count -eq 1) -and ($OrganizationID.length -gt 0) -and ($OrganizationID -ne 0)) {
     try {
         # Assume that $accounts contains only a parent account, and attempt to extract its children
         $parentAccount = $accounts
@@ -132,41 +140,45 @@ if($accounts.Count -eq 1) {
         $accountInfoResult = retrieve_rs_account_info -account $parentAccount
         if($accountInfoResult -eq $false) { EXIT 1 }
         # Attempt to pull a list of child accounts (and their account attributes)
-        $childAccountsResult = Invoke-RestMethod -Uri "https://$($gAccounts["$parentAccount"]['endpoint'])/api/child_accounts?account_href=/api/accounts/$parentAccount" -Headers $headers -Method GET -WebSession $webSessions["$parentAccount"]
+        $originalAPIVersion = $webSessions["$parentAccount"].Headers["X_API_VERSION"]
+        $webSessions["$parentAccount"].Headers.Remove("X_API_VERSION") | Out-Null
+        $childAccountsResult = Invoke-RestMethod -Uri "https://governance.rightscale.com/grs/orgs/$OrganizationID/projects" -Headers @{"X-API-Version"="2.0"} -Method GET -WebSession $webSessions["$parentAccount"]
+        $webSessions["$parentAccount"].Headers.Remove("X-API-Version") | Out-Null
+        $webSessions["$parentAccount"].Headers.Add("X_API_VERSION",$originalAPIVersion)
         if($childAccountsResult.count -gt 0) {
+            $childAccounts = [System.Collections.ArrayList]@()
             $child_accounts_present = $true
             # Organize and store child account attributes
-            foreach($childAccount in $childAccountsResult)
-            {
-                $accountNum = $childAccount.links | Where-Object { $_.rel -eq "self" } | Select-Object -ExpandProperty href | Split-Path -Leaf
-                $cluster = $childAccount.links | Where-Object { $_.rel -eq 'cluster' } | Select-Object -ExpandProperty href | Split-Path -Leaf
-                if($cluster -eq 10) {
-                    $accountEndpoint = "telstra-$cluster.rightscale.com"
-                }
-                else {
-                    $accountEndpoint = "us-$cluster.rightscale.com"
-                }
-                $gAccounts["$accountNum"] += @{
-                    'endpoint'=$accountEndpoint;
-                    'owner'="$($childAccount.links | Where-Object { $_.rel -eq 'owner' } | Select-Object -ExpandProperty href | Split-Path -Leaf)"
+            foreach($childAccountResult in $childAccountsResult) {
+                if($childAccountResult.id -notmatch $parentAccount) {
+                    $accountNum = $childAccountResult.id
+                    $accountEndpoint = $childAccountResult.legacy.account_url.replace('https://','').split('/')[0]
+                    $gAccounts["$accountNum"] += @{
+                        'endpoint'=$accountEndpoint;
+                        'owner'='N/A'
+                    }
+                    # Establish sessions with and gather information about all of the child accounts individually
+                    $childAccountInfoResult = retrieve_rs_account_info -account $accountNum
+                    if($childAccountInfoResult -eq $false) {
+                        # To continue, we need to remove it from the hash
+                        $gAccounts.Remove("$accountNum")
+                    }
+                    else {
+                        #Otherwise add it to the childAccounts array
+                        $childAccounts += $accountNum
+                    }
                 }
             }
-            # Parse the output and turn it into an array of child accounts
-            $childAccounts = $childAccountsResult.links | Where-Object { $_.rel -eq "self" } | Select-Object -ExpandProperty href | Split-Path -Leaf
             # If anything had errored out prior to here, we would not get to this line, so we are confident that we were provided a parent account
             $parent_provided = $true
-            # Establish sessions with and gather information about all of the child accounts individually
-            foreach ($childAccount in $childAccounts) {
-                $childAccountInfoResult = retrieve_rs_account_info -account $childAccount
-                if($childAccountsResult -eq $false) {
-                    # To continue, we need to remove it from the hash and the array
-                    $gAccounts.Remove($childAccount)
-                    $childAccounts = $childAccounts | Where-Object {$_ -ne $childAccount}
-                }
-            }
             # Add the newly enumerated child accounts back to the list of accounts
-            $accounts = $accounts + $childAccounts
-            Write-Verbose "$parentAccount : Child accounts have been identified: $childAccounts"
+            $accounts = $gAccounts.Keys
+            if($childAccounts.Count -gt 0) {
+                Write-Verbose "$parentAccount : Child accounts have been identified: $childAccounts"
+            }
+            else {
+                Write-Warning "$parentAccount : Child accounts have been identified, but they could not be authenticated to"
+            }
         }
         else {
             # No child accounts
@@ -182,7 +194,7 @@ if($accounts.Count -eq 1) {
     }
 }
 
-if(!$parent_provided -and $accounts.count -gt 1) {
+if(!$parent_provided -and $accounts.count -gt 0) {
     # We were provided multiple accounts, or the single account we got wasn't a parent
     foreach ($account in $accounts) {
         # Kickstart the account attributes by giving it the endpoint provided by the user
@@ -192,7 +204,7 @@ if(!$parent_provided -and $accounts.count -gt 1) {
         $accountInfoResult = retrieve_rs_account_info -account $account
         if($accountInfoResult -eq $false) {
             # To continue, we need to remove it from the hash and the array
-            $gAccounts.Remove($account)
+            $gAccounts.Remove("$account")
             $accounts = $accounts | Where-Object {$_ -ne $account}
         }
     }
@@ -203,7 +215,7 @@ if($gAccounts.Keys.count -eq 0) {
     EXIT 1
 }
 
-foreach ($account in $accounts) {
+foreach ($account in $gAccounts.Keys) {
     # Account Name
     try {
         $accountName = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])/api/accounts/$account" -Headers $headers -Method GET -WebSession $webSessions["$account"] | Select-Object -ExpandProperty name

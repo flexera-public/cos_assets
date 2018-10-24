@@ -1,11 +1,16 @@
 # README
 
 ## Get-OrgUtilizationData.ps1
-- `rsc` is required to run this script. It can be downloaded from [GitHub - rightscale/rsc](https://github.com/rightscale/rsc)
-- We attempt to locate `rsc` by searching for it in $PWD, $HOME, '/usr/local/bin', '/opt/bin/', and 'C:\Program Files\RightScale\RightLink'
-- In this script, `rsc` uses basic authentication, so SSO user accounts may not be used to authenticate.
+- The script uses basic authentication. SSO user accounts and refresh tokens are not supported.
 - PowerShell or [PowerShell CORE](https://github.com/PowerShell/PowerShell) is required
+- Uses the Governance module to collect all child projects in the Organization
+- Beginning and end time frame can be entered as just dates, which will set a time of midnight, or fully qualified dates and times.
+- Output as CSV in current directory
+  - Collects RightLink monitoring data for instances and calculates maximum and average utilization for CPU and memory between two dates.
 
 ## Get-VMInformation.ps1
-
-This is a PowerShell script that gets account, cloud, instance name, vm id, public and private ips, server state, os platform, resource group if any, availability set if any, and tags.
+- The script uses basic authentication. SSO user accounts and refresh tokens are not supported.
+- PowerShell or [PowerShell CORE](https://github.com/PowerShell/PowerShell) is required
+- Uses the Governance module to collect all child projects in the Organization
+- Output as CSV in current directory
+  - Fields: account, cloud, instance name, vm id, public and private ips, server state, os platform, resource group if any, availability set if any, and tags
