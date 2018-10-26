@@ -40,10 +40,10 @@ if($PSVersionTable.PSVersion.Major -lt 4) {
     EXIT 1
 }
 
-if(!(Test-NetConnection -ComputerName "login.rightscale.com" -Port 443)) {
-    Write-Error "Unable to contact login.rightscale.com. Check you internet connection."
-    EXIT 1
-}
+#if(!(Test-NetConnection -ComputerName "login.rightscale.com" -Port 443)) {
+#    Write-Error "Unable to contact login.rightscale.com. Check you internet connection."
+#    EXIT 1
+#}
 
 ## Create functions
 Function Clean-Memory {
