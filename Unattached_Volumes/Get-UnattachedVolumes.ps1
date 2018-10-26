@@ -477,4 +477,8 @@ if(($DebugPreference -eq "SilentlyContinue") -or ($PSBoundParameters.ContainsKey
     Clean-Memory
 }
 
-Write-Verbose "Script End Time: $(Get-Date)"
+$scriptEndTime = Get-Date 
+$scriptElapsed = New-TimeSpan -Start $currentTime -End $scriptEndTime
+$scriptElapsedMinutes = "{00:N2}" -f $scriptElapsed.TotalMinutes
+Write-Verbose "Script End Time: $scriptEndTime"
+Write-Verbose "Script Elapsed Time: $scriptElapsedMinutes minute(s)"

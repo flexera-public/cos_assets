@@ -313,7 +313,7 @@ if($gAccounts.Keys.count -eq 0) {
 
 foreach ($account in $gAccounts.Keys) {
     Write-Verbose "$account : Starting..."
-    
+
     # Account Name
     try {
         $accountName = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])/api/accounts/$account" -Headers $headers -Method GET -WebSession $webSessions["$account"] | Select-Object -ExpandProperty name
@@ -382,7 +382,6 @@ foreach ($account in $gAccounts.Keys) {
 
             # Get Instance Types including Deleted
             try {
-                #$instanceTypes = ./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 index $cloudHref/instance_types | ConvertFrom-Json
                 $instanceTypes = Invoke-RestMethod -Uri https://$($gAccounts["$account"]['endpoint'])$cloudHref/instance_types?with_deleted=true -Headers $headers -Method GET -WebSession $webSessions["$account"]
                 $instanceTypes = $instanceTypes | Select-Object name, resource_uid, description, memory, cpu_architecture, cpu_count, cpu_speed, @{Name="href";Expression={$_.links | Where-Object { $_.rel -eq "self" } | Select-Object -ExpandProperty href}}
             } 
@@ -392,97 +391,128 @@ foreach ($account in $gAccounts.Keys) {
             }
             
             foreach ($instance in $instances) {
-                Write-Verbose "$account : $cloudName : $($instance.name)"
+                $metrics = $null; $cpuMetrics = $false; $memoryMetrics = $false;
                 $instanceHref = $instance.links | Where-Object { $_.rel -eq "self" } | Select-Object -ExpandProperty "href"
                 $instanceUid = $instance.resource_uid
-
-                # Get total memory from instance_type
                 $instanceTypeHref = $instance.links | Where-Object { $_.rel -eq "instance_type" } | Select-Object -ExpandProperty "href"
-                $instanceMemory = $instanceTypes | Where-Object { $_.href -eq $instanceTypeHref } | Select-Object -ExpandProperty "memory"
                 $instanceTypeName = $instanceTypes | Where-Object { $_.href -eq $instanceTypeHref } | Select-Object -ExpandProperty "name"
 
                 if(!($instanceTypeName)) {
-                    Write-Warning "$account : $cloudName : $($instance.name) : Instance Type 'unknown'"
                     $instanceTypeName = "Unknown"
                 }
 
-                if($instanceMemory) {
-                    if($instanceMemory -match '^\d*$') {
-                        # Assume MB if no multiplier
-                        $memBaseSize = $instanceMemory
-                        $memMultiplier = "MB"
+                Write-Verbose "$account : $cloudName : $($instance.name) : Instance Type '$instanceTypeName'"
+
+                try {
+                    $metrics = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])$instanceHref/monitoring_metrics" -Headers $headers -Method GET -WebSession $webSessions["$account"]
+                    $availableMetrics = $metrics | Select-Object @{Name="metric";Expression={$_.plugin + ':' + $_.view}}
+                    if($availableMetrics.metric -contains 'cpu-0:cpu-idle') {
+                        $cpuMetrics = $true
                     }
                     else {
-                        # Contains multiplier
-                        $memBaseSize = $instanceMemory.Split(' ')[0]
-                        $memMultiplier = $instanceMemory.Split(' ')[1]
+                        $cpuMetrics = $false
                     }
-                }
-                else {
-                    $instanceMemory = "Unknown"
-                    $memMultiplier = ""
-                }   
-
-                Write-Verbose "$account : $cloudName : $($instance.name) : Instance Type = $instanceTypeName : Instance Memory = $instanceMemory $memMultiplier"
-
-                $cpuMax = $null; $cpuAvg = $null; $cpuData = $null; $cpuDataPoints = $null; $cpuDataPointsTotal = $null;
-                
-                # Get cpu-0:cpu-idle Monitoring Metrics
-                try {
-                    #$cpuData = ./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 data $instanceHref/monitoring_metrics/cpu-0:cpu-idle/data "start=$startTime" "end=$endTime" --pp 2>$null | ConvertFrom-Json
-                    $cpuData = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])$instanceHref/monitoring_metrics/cpu-0:cpu-idle/data?start=$startTime&end=$endTime" -Headers $headers -Method GET -WebSession $webSessions["$account"]
+                    if($availableMetrics.metric -contains 'memory:memory-used') {
+                        $memoryMetrics = $true
+                    }
+                    else {
+                        $memoryMetrics = $false
+                    }
                 } 
                 catch {
-                    Write-Warning "$account : $cloudName : $($instance.name) : Unable to retrieve cpu monitoring data! StatusCode: $($_.Exception.Response.StatusCode.value__)"
+                    Write-Verbose "$account : $cloudName : $($instance.name) : Unable to retrieve available monitoring metrics! StatusCode: $($_.Exception.Response.StatusCode.value__)"
+                    $cpuMetrics = $false
+                    $memoryMetrics = $false
                 }
-                if ($cpuData) {
-                    Write-Verbose "$account : $cloudName : $($instance.name) : Collected CPU metrics"
-                    $cpuDataPoints = $cpuData.variables_data.points | Where-Object { $_ } # Trim $null returns
-                    $cpuDataPointsTotal = $cpuDataPoints.count
+
+                if($cpuMetrics) {
+                    $cpuMax = $null; $cpuAvg = $null; $cpuData = $null; $cpuDataPoints = $null; $cpuDataPointsTotal = $null;
                     
-                    ## Calculate CPU max
-                    $cpuMaxIdle = $cpuDataPoints | Sort-Object -Descending | Select-Object -Last 1
-                    if ($cpuMaxIdle -ne $null) {
-                        $cpuMax = "{00:N2}" -f (100 - $cpuMaxIdle) # Convert idle to used and format the number
-                    }
-
-                    ## Calculate CPU avg
-                    $cpuAvgIdle = $cpuDataPoints | Measure-Object -Average | Select-Object -ExpandProperty Average
-                    if ($cpuAvgIdle -ne $null) {
-                        $cpuAvg = "{00:N2}" -f (100 - $cpuAvgIdle) # Convert idle to used and format the number
-                    }
-                }
-
-                $memMax = $null; $memAvg = $null; $memData = $null; $memDataPoints = $null; $memDataPointsTotal = $null;
-                if($instanceMemory -ne "Unknown") {
-                    # Get memory:memory-used Monitoring Metrics - Memory is not monitored as a percentage but instead as total used
+                    # Get cpu-0:cpu-idle Monitoring Metrics
                     try {
-                        #$memData = ./rsc -a $account --host=$endpoint --email=$email --pwd=$password cm15 data $instanceHref/monitoring_metrics/memory:memory-used/data "start=$startTime" "end=$endTime" --pp 2>$null | ConvertFrom-Json
-                        $memData = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])$instanceHref/monitoring_metrics/memory:memory-used/data?start=$startTime&end=$endTime" -Headers $headers -Method GET -WebSession $webSessions["$account"]
+                        $cpuData = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])$instanceHref/monitoring_metrics/cpu-0:cpu-idle/data?start=$startTime&end=$endTime" -Headers $headers -Method GET -WebSession $webSessions["$account"]
                     } 
                     catch {
-                        Write-Warning "$account : $cloudName : $($instance.name) : Unable to retrieve memory monitoring data! StatusCode: $($_.Exception.Response.StatusCode.value__)"
+                        Write-Warning "$account : $cloudName : $($instance.name) : Unable to retrieve cpu monitoring data! StatusCode: $($_.Exception.Response.StatusCode.value__)"
                     }
-                    if ($memData) {
-                        Write-Verbose "$account : $cloudName : $($instance.name) : Collected Memory metrics"
-                        $memDataPoints = $memData.variables_data.points | Where-Object { $_ } # Trim $null returns
-                        $memDataPointsTotal = $memDataPoints.count
+                    if ($cpuData) {
+                        Write-Verbose "$account : $cloudName : $($instance.name) : Collected CPU metrics"
+                        $cpuDataPoints = $cpuData.variables_data.points | Where-Object { $_ } # Trim $null returns
+                        $cpuDataPointsTotal = $cpuDataPoints.count
                         
-                        ## Calculate max used memory
-                        $memMax = $memDataPoints | Sort-Object -Descending | Select-Object -First 1
-                        if ($memMax -ne $null) {
-                            $memMax = "{00:N2}" -f ((($memMax / "1$memMultiplier") / $memBaseSize) * 100) # Convert to percentage and format the number
+                        ## Calculate CPU max
+                        $cpuMaxIdle = $cpuDataPoints | Sort-Object -Descending | Select-Object -Last 1
+                        if ($cpuMaxIdle -ne $null) {
+                            $cpuMax = "{00:N2}" -f (100 - $cpuMaxIdle) # Convert idle to used and format the number
                         }
 
-                        ## Calculate average used memory
-                        $memAvg = $memDataPoints | Measure-Object -Average | Select-Object -ExpandProperty Average
-                        if ($memAvg -ne $null) {
-                            $memAvg = "{00:N2}" -f ((($memAvg / "1$memMultiplier") / $memBaseSize) * 100) # Convert to percentage and format the number
+                        ## Calculate CPU avg
+                        $cpuAvgIdle = $cpuDataPoints | Measure-Object -Average | Select-Object -ExpandProperty Average
+                        if ($cpuAvgIdle -ne $null) {
+                            $cpuAvg = "{00:N2}" -f (100 - $cpuAvgIdle) # Convert idle to used and format the number
                         }
                     }
                 }
                 else {
-                    Write-Verbose "$account : $cloudName : $($instance.name) : Unable to calculate memory utilization"
+                    Write-Verbose "$account : $cloudName : $($instance.name) : CPU metrics not available"
+                }
+
+                if($memoryMetrics) {
+                    # Get total memory from instance_type
+                    $instanceMemory = $instanceTypes | Where-Object { $_.href -eq $instanceTypeHref } | Select-Object -ExpandProperty "memory"
+
+                    if($instanceMemory) {
+                        if($instanceMemory -match '^\d*$') {
+                            # Assume MB if no multiplier
+                            $memBaseSize = $instanceMemory
+                            $memMultiplier = "MB"
+                        }
+                        else {
+                            # Contains multiplier
+                            $memBaseSize = $instanceMemory.Split(' ')[0]
+                            $memMultiplier = $instanceMemory.Split(' ')[1]
+                        }
+                    }
+                    else {
+                        $instanceMemory = "Unknown"
+                        $memMultiplier = ""
+                    }
+
+                    Write-Verbose "$account : $cloudName : $($instance.name) : Instance Memory = $instanceMemory $memMultiplier"
+                    
+                    $memMax = $null; $memAvg = $null; $memData = $null; $memDataPoints = $null; $memDataPointsTotal = $null;
+                    if($instanceMemory -ne "Unknown") {
+                        # Get memory:memory-used Monitoring Metrics - Memory is not monitored as a percentage but instead as total used
+                        try {
+                            $memData = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])$instanceHref/monitoring_metrics/memory:memory-used/data?start=$startTime&end=$endTime" -Headers $headers -Method GET -WebSession $webSessions["$account"]
+                        } 
+                        catch {
+                            Write-Warning "$account : $cloudName : $($instance.name) : Unable to retrieve memory monitoring data! StatusCode: $($_.Exception.Response.StatusCode.value__)"
+                        }
+                        if ($memData) {
+                            Write-Verbose "$account : $cloudName : $($instance.name) : Collected Memory metrics"
+                            $memDataPoints = $memData.variables_data.points | Where-Object { $_ } # Trim $null returns
+                            $memDataPointsTotal = $memDataPoints.count
+                            
+                            ## Calculate max used memory
+                            $memMax = $memDataPoints | Sort-Object -Descending | Select-Object -First 1
+                            if ($memMax -ne $null) {
+                                $memMax = "{00:N2}" -f ((($memMax / "1$memMultiplier") / $memBaseSize) * 100) # Convert to percentage and format the number
+                            }
+
+                            ## Calculate average used memory
+                            $memAvg = $memDataPoints | Measure-Object -Average | Select-Object -ExpandProperty Average
+                            if ($memAvg -ne $null) {
+                                $memAvg = "{00:N2}" -f ((($memAvg / "1$memMultiplier") / $memBaseSize) * 100) # Convert to percentage and format the number
+                            }
+                        }
+                    }
+                    else {
+                        Write-Verbose "$account : $cloudName : $($instance.name) : Unable to calculate memory utilization"
+                    }
+                }
+                else {
+                    Write-Verbose "$account : $cloudName : $($instance.name) : Memory metrics not available"
                 }
 
                 $cpuTimeFrame = $null; $memTimeFrame = $null; $metricTimespan = 0;
@@ -548,4 +578,8 @@ if(($DebugPreference -eq "SilentlyContinue") -or ($PSBoundParameters.ContainsKey
     Clean-Memory
 }
 
-Write-Verbose "Script End Time: $(Get-Date)"
+$scriptEndTime = Get-Date 
+$scriptElapsed = New-TimeSpan -Start $currentTime -End $scriptEndTime
+$scriptElapsedMinutes = "{00:N2}" -f $scriptElapsed.TotalMinutes
+Write-Verbose "Script End Time: $scriptEndTime"
+Write-Verbose "Script Elapsed Time: $scriptElapsedMinutes minute(s)"

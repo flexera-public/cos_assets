@@ -273,7 +273,7 @@ if($gAccounts.Keys.count -eq 0) {
 ## Retrieve information about each known account
 foreach ($account in $gAccounts.Keys) {
     Write-Verbose "$account : Starting..."
-    
+
     # Account Name
     try {
         $accountName = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])/api/accounts/$account" -Headers $headers -Method GET -WebSession $webSessions["$account"] | Select-Object -ExpandProperty name
@@ -395,4 +395,8 @@ if(($DebugPreference -eq "SilentlyContinue") -or ($PSBoundParameters.ContainsKey
     Clean-Memory
 }
 
-Write-Verbose "Script End Time: $(Get-Date)"
+$scriptEndTime = Get-Date 
+$scriptElapsed = New-TimeSpan -Start $currentTime -End $scriptEndTime
+$scriptElapsedMinutes = "{00:N2}" -f $scriptElapsed.TotalMinutes
+Write-Verbose "Script End Time: $scriptEndTime"
+Write-Verbose "Script Elapsed Time: $scriptElapsedMinutes minute(s)"
