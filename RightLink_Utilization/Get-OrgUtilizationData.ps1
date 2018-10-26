@@ -558,7 +558,7 @@ foreach ($account in $gAccounts.Keys) {
 
 if($instancesDetail.count -gt 0) {
     if($ExportToCsv) {
-        $csv = "$($CustomerName)_OrgUtilizationData_$($csvTime).csv"
+        $csv = "$($CustomerName)_OrgUtilizationData($($startTime)_$($endTime))_$($csvTime).csv"
         $instancesDetail | Export-Csv "./$csv" -NoTypeInformation
         $csvFilePath = (Get-ChildItem $csv).FullName
         Write-Host "CSV File: $csvFilePath"
