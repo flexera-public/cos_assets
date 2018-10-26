@@ -1,6 +1,6 @@
 # Source: https://github.com/rs-services/cos_assets
 #
-# Version: 3.0
+# Version: 3.0.1
 #  RSC binary no longer required
 #  Added PowerShell native parameter support
 #  Added API call redirection handling, no longer need to specify endpoint
@@ -241,28 +241,26 @@ if(($accounts.Count -eq 1) -and ($OrganizationID.length -gt 0) -and ($Organizati
         $userAccessResult = Invoke-RestMethod -Uri "https://governance.rightscale.com/grs/users/$userId/projects" -Headers @{"X-API-Version"="2.0"} -Method GET -WebSession $webSessions["$parentAccount"]
         $webSessions["$parentAccount"].Headers.Remove("X-API-Version") | Out-Null
         $webSessions["$parentAccount"].Headers.Add("X_API_VERSION",$originalAPIVersion)
-        $childAccountsResult = $userAccessResult | Where-Object {$_.links.org.id -eq $OrganizationID}
+        $childAccountsResult = $userAccessResult | Where-Object {$_.links.org.id -eq $OrganizationID} | Where-Object {$_.id -notmatch $parentAccount}
         if($childAccountsResult.count -gt 0) {
             $childAccounts = [System.Collections.ArrayList]@()
             $child_accounts_present = $true
             # Organize and store child account attributes
             foreach($childAccountResult in $childAccountsResult) {
-                if($childAccountResult.id -notmatch $parentAccount) {
-                    $accountNum = $childAccountResult.id
-                    $accountEndpoint = $childAccountResult.legacy.account_url.replace('https://','').split('/')[0]
-                    $gAccounts["$accountNum"] += @{
-                        'endpoint'=$accountEndpoint
-                    }
-                    # Establish sessions with and gather information about all of the child accounts individually
-                    $childAccountInfoResult = establish_rs_session -account $accountNum
-                    if($childAccountInfoResult -eq $false) {
-                        # To continue, we need to remove it from the hash
-                        $gAccounts.Remove("$accountNum")
-                    }
-                    else {
-                        #Otherwise add it to the childAccounts array
-                        $childAccounts += $accountNum
-                    }
+                $accountNum = $childAccountResult.id
+                $accountEndpoint = $childAccountResult.legacy.account_url.replace('https://','').split('/')[0]
+                $gAccounts["$accountNum"] += @{
+                    'endpoint'=$accountEndpoint
+                }
+                # Establish sessions with and gather information about all of the child accounts individually
+                $childAccountInfoResult = establish_rs_session -account $accountNum
+                if($childAccountInfoResult -eq $false) {
+                    # To continue, we need to remove it from the hash
+                    $gAccounts.Remove("$accountNum")
+                }
+                else {
+                    #Otherwise add it to the childAccounts array
+                    $childAccounts += $accountNum
                 }
             }
             # If anything had errored out prior to here, we would not get to this line, so we are confident that we were provided a parent account
@@ -293,15 +291,17 @@ if(($accounts.Count -eq 1) -and ($OrganizationID.length -gt 0) -and ($Organizati
 if(!$parent_provided -and $accounts.count -gt 0) {
     # We were provided multiple accounts, or the single account we got wasn't a parent
     foreach ($account in $accounts) {
-        # Kickstart the account attributes by giving it the endpoint provided by the user
-        $gAccounts["$account"] = @{'endpoint'="$endpoint"}
+        if(!($webSessions["$account"])) {
+            # Kickstart the account attributes by giving it the endpoint provided by the user
+            $gAccounts["$account"] = @{'endpoint'="$endpoint"}
 
-        # Attempt to establish sessions with the provided accounts and gather the relevant information
-        $accountInfoResult = establish_rs_session -account $account
-        if($accountInfoResult -eq $false) {
-            # To continue, we need to remove it from the hash and the array
-            $gAccounts.Remove("$account")
-            $accounts = $accounts | Where-Object {$_ -ne $account}
+            # Attempt to establish sessions with the provided accounts and gather the relevant information
+            $accountInfoResult = establish_rs_session -account $account
+            if($accountInfoResult -eq $false) {
+                # To continue, we need to remove it from the hash and the array
+                $gAccounts.Remove("$account")
+                $accounts = $accounts | Where-Object {$_ -ne $account}
+            }
         }
     }
 }
