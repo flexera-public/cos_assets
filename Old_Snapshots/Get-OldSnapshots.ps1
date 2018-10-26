@@ -63,7 +63,6 @@ function establish_rs_session($account) {
     # Establish a session with RightScale, given an account number
     try {
         Write-Verbose "$account : Establishing a web session via $endpoint..."
-        #Invoke-RestMethod -Uri "https://$endpoint/api/session" -Headers $headers -Method POST -SessionVariable tmpvar -ContentType application/x-www-form-urlencoded -Body "email=$($RSCredential.UserName)&password=$($RSCredential.GetNetworkCredential().Password)&account_href=/api/accounts/$account" -MaximumRedirection 0 | Out-Null
         $response = Invoke-WebRequest -Uri "https://$endpoint/api/session" -Headers $headers -Method POST -SessionVariable tmpvar -ContentType application/x-www-form-urlencoded -Body "email=$($RSCredential.UserName)&password=$($RSCredential.GetNetworkCredential().Password)&account_href=/api/accounts/$account" -MaximumRedirection 0 -ErrorAction Ignore
         if($response.StatusCode -eq $null) {
             Write-Warning "$account : Unable to establish a session! StatusCode not present"
@@ -74,6 +73,7 @@ function establish_rs_session($account) {
             RETURN $true
         }
         elseif($response.StatusCode -eq 302) {
+            # Request is redirected if the incorrect endpoint is used
             $newEndpoint = $response.Headers.Location.Replace('https://','').Split('/')[0]
             Write-Verbose "$account : Request redirected to $newEndpoint"
             Write-Verbose "$account : Establishing a web session via $newEndpoint..."
@@ -94,8 +94,26 @@ function establish_rs_session($account) {
         }
     }
     catch {
-        Write-Warning "$account : Unable to establish a session! StatusCode: $($_.Exception.Response.StatusCode.value__)"
-        RETURN $false
+        if($_.Exception.Response.StatusCode.value__ -eq 302) {
+            # Request is redirected if the incorrect endpoint is used
+            $newEndpoint = $_.exception.response.headers.location.host
+            Write-Verbose "$account : Request redirected to $newEndpoint"
+            try {
+                Write-Verbose "$account : Establishing a web session via $newEndpoint..."
+                Invoke-WebRequest -Uri "https://$newEndpoint/api/session" -Headers $headers -Method POST -SessionVariable tmpvar -ContentType application/x-www-form-urlencoded -Body "email=$($RSCredential.UserName)&password=$($RSCredential.GetNetworkCredential().Password)&account_href=/api/accounts/$account" -MaximumRedirection 0 -ErrorAction Ignore
+                $webSessions["$account"] = $tmpvar
+                $gAccounts["$account"]['endpoint'] = $newEndpoint
+                RETURN $true
+            }
+            catch {
+                Write-Warning "$account : Unable to establish a session! StatusCode: $($_.Exception.Response.StatusCode.value__)"
+                RETURN $false
+            }
+        }
+        else {
+            Write-Warning "$account : Unable to establish a session! StatusCode: $($_.Exception.Response.StatusCode.value__)"
+            RETURN $false
+        }
     }
 }
 
@@ -408,7 +426,7 @@ foreach ($account in $gAccounts.Keys) {
 
 if($allSnapsObject.count -gt 0) {
     if($ExportToCsv) {
-        $csv = "$($CustomerName)_snapshots_$($csvTime).csv"
+        $csv = "$($CustomerName)_OldSnapshots_$($csvTime).csv"
         $allSnapsObject | Export-Csv "./$csv" -NoTypeInformation
         $csvFilePath = (Get-ChildItem $csv).FullName
         Write-Host "CSV File: $csvFilePath"
