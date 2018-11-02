@@ -1,6 +1,6 @@
 # Source: https://github.com/rs-services/cos_assets
 #
-# Version: 3.0.1
+# Version: 3.0.2
 #  RSC binary no longer required
 #  Added PowerShell native parameter support
 #  Added API call redirection handling, no longer need to specify endpoint
@@ -159,7 +159,7 @@ if($Accounts.Count -eq 0) {
 
 if(($Date -eq $null) -or ($Date -eq '')) {
     $Date = Read-Host "Input date for newest allowed volume snapshots (Format: YYYY/MM/DD)"
-    if($Accounts.Length -eq 0) {
+    if($Date.Length -eq 0) {
         Write-Warning "You must supply at date!"
         EXIT 1
     }
@@ -376,45 +376,57 @@ foreach ($account in $gAccounts.Keys) {
                 $cTotalAccountSnaps += $allSnaps.count
 
                 foreach ($snap in $allSnaps) {
-                    $snapDate = $null
-                    $snapDate = Get-Date $snap.created_at
-                    $parentVolumeHref = $snap.links | Where-Object {$_.rel -eq 'parent_volume'} | Select-Object -ExpandProperty href
                     $snapshotHref = $($snap.links | Where-Object rel -eq "self").href
-                    
-                    if ($volumeHrefs -notcontains $parentVolumeHref) { 
-                        $parentVolAvailable = "Not Available"
+                    Write-Verbose "$account : $cloudName : $($snap.resource_uid)"
+                    if($snap.created_at) {
+                        $snapDate = $null
+                        $snapDate = Get-Date $snap.created_at
+                        $parentVolumeHref = $snap.links | Where-Object {$_.rel -eq 'parent_volume'} | Select-Object -ExpandProperty href
+                        
+                        if ($volumeHrefs -notcontains $parentVolumeHref) { 
+                            $parentVolAvailable = "Not Available"
+                        }
+                        else {
+                            $parentVolAvailable = $parentVolumeHref
+                        }
+                        Write-Verbose "$account : $cloudName : $($snap.resource_uid) : Parent Href = $parentVolAvailable"
+
+                        if ($snapDate -lt $myDate) {
+                            Write-Verbose "$account : $cloudName : $($snap.resource_uid) : Snapshot meets criteria"
+                            try {
+                                Write-Verbose "$account : $cloudName : $($snap.resource_uid) : Retrieving tags..."
+                                $taginfo = Invoke-RestMethod -Uri https://$($gAccounts["$account"]['endpoint'])/api/tags/by_resource -Headers $headers -Method POST -WebSession $webSessions["$account"] -ContentType application/x-www-form-urlencoded -Body "email=$($RSCredential.UserName)&password=$($RSCredential.GetNetworkCredential().Password)&account_href=/api/accounts/$account&resource_hrefs[]=$snapshotHref"
+                            }
+                            catch {
+                                Write-Warning "$account : $cloudName : $($snap.resource_uid) : Unable to retrieve Snapshot tags! StatusCode: $($_.Exception.Response.StatusCode.value__)"
+                            }
+                            
+                            $object = [pscustomobject]@{
+                                "Account_ID"                = $account;
+                                "Account_Name"              = $accountName;
+                                "Cloud_Account_ID"          = $($cloudAccountIds | Where-Object {$_.href -eq $cloudHref} | Select-Object -ExpandProperty tenant_uid);
+                                "Cloud"                     = $cloudName;
+                                "Snapshot_Name"             = $snap.name;
+                                "Description"               = $snap.description;
+                                "Resource_UID"              = $snap.resource_uid;
+                                "Size"                      = $snap.size;
+                                "Started_At"                = $snap.created_at;
+                                "Updated_At"                = $snap.updated_at;
+                                "Cloud_Specific_Attributes" = $snap.cloud_specific_attributes ;
+                                "State"                     = $snap.state;
+                                "Parent_Volume"             = $parentVolAvailable;
+                                "Href"                      = $snapshotHref;
+                                "Tags"                      = "`"$($taginfo.tags.name -join '","')`"";
+                            }
+                            $allSnapsObject += $object
+                            $cTotalAccountSnapsDate++
+                        }
+                        else {
+                            Write-Verbose "$account : $cloudName : $($snap.resource_uid) : Snapshot does not meet criteria"
+                        }
                     }
                     else {
-                        $parentVolAvailable = $parentVolumeHref
-                    }
-
-                    if ($snapDate -lt $myDate) {
-                        try {
-                            $taginfo = Invoke-RestMethod -Uri https://$($gAccounts["$account"]['endpoint'])/api/tags/by_resource -Headers $headers -Method POST -WebSession $webSessions["$account"] -ContentType application/x-www-form-urlencoded -Body "email=$($RSCredential.UserName)&password=$($RSCredential.GetNetworkCredential().Password)&account_href=/api/accounts/$account&resource_hrefs[]=$snapshotHref"
-                        }
-                        catch {
-                            Write-Warning "$account : $cloudName : $($snap.name) : Unable to retrieve Snapshot tags! StatusCode: $($_.Exception.Response.StatusCode.value__)"
-                        }
-                        
-                        $object = [pscustomobject]@{
-                            "Account_ID"                = $account;
-                            "Account_Name"              = $accountName;
-                            "Cloud_Account_ID"          = $($cloudAccountIds | Where-Object {$_.href -eq $cloudHref} | Select-Object -ExpandProperty tenant_uid);
-                            "Cloud"                     = $cloudName;
-                            "Snapshot_Name"             = $snap.name;
-                            "Description"               = $snap.description;
-                            "Resource_UID"              = $snap.resource_uid;
-                            "Size"                      = $snap.size;
-                            "Started_At"                = $snap.created_at;
-                            "Updated_At"                = $snap.updated_at;
-                            "Cloud_Specific_Attributes" = $snap.cloud_specific_attributes ;
-                            "State"                     = $snap.state;
-                            "Parent_Volume"             = $parentVolAvailable;
-                            "Href"                      = $snapshotHref;
-                            "Tags"                      = "`"$($taginfo.tags.name -join '","')`"";
-                        }
-                        $allSnapsObject += $object
-                        $cTotalAccountSnapsDate++
+                        Write-Warning "$account : $cloudName : $($snap.resource_uid) : created_at date missing!"
                     }
                 }
             }
