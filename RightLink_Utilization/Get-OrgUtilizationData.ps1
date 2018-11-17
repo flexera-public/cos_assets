@@ -378,10 +378,9 @@ foreach ($account in $gAccounts.Keys) {
             CONTINUE
         } 
         else {
-            Write-Verbose "$account : $cloudName : Getting instances..."
-
             # Get Instance Types including Deleted
             try {
+                Write-Verbose "$account : $cloudName : Retrieving instance type information..."
                 $instanceTypes = Invoke-RestMethod -Uri https://$($gAccounts["$account"]['endpoint'])$cloudHref/instance_types?with_deleted=true -Headers $headers -Method GET -WebSession $webSessions["$account"]
                 $instanceTypes = $instanceTypes | Select-Object name, resource_uid, description, memory, cpu_architecture, cpu_count, cpu_speed, @{Name="href";Expression={$_.links | Where-Object { $_.rel -eq "self" } | Select-Object -ExpandProperty href}}
             } 
@@ -573,7 +572,7 @@ else {
 
 if(($DebugPreference -eq "SilentlyContinue") -or ($PSBoundParameters.ContainsKey('Debug'))) {
     ## Clear out any variables that were created
-    # Useful for testing in an IDE/ISE, shouldn't be neccesary for running the script normally
+    # Useful for testing in an IDE/ISE, shouldn't be necesary for running the script normally
     Write-Verbose "Clearing variables from memory..."
     Clean-Memory
 }

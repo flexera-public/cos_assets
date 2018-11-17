@@ -20,6 +20,7 @@ param(
     [string]$OrganizationID,
     [alias("ParentAccount")]
     [string[]]$Accounts,
+    [bool]$ReportAttachedDisks,
     [bool]$ExportToCsv = $true
 )
 
@@ -145,6 +146,19 @@ if($OrganizationID.Length -eq 0) {
     $OrganizationID = Read-Host "Enter the Organization ID to gather details from all child accounts. Enter 0 or Leave blank to skip"
     if($OrganizationID.Length -eq 0) {
         $OrganizationID = 0
+    }
+}
+
+if($ReportAttachedDisks -eq $null) {
+    $ReportAttachedDisks = Read-Host "Report on attached disks? Yes/No"
+    if($ReportAttachedDisks -eq 'yes' -or 'y') {
+        $ReportAttachedDisks = $true
+    }
+    elseif($ReportAttachedDisks -eq 'no' -or 'n') {
+        $ReportAttachedDisks = $false
+    }
+    else {
+        $ReportAttachedDisks -eq $false
     }
 }
 
@@ -276,6 +290,7 @@ foreach ($account in $gAccounts.Keys) {
 
     # Account Name
     try {
+        Write-Verbose "$account : Retrieving account name..."
         $accountName = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])/api/accounts/$account" -Headers $headers -Method GET -WebSession $webSessions["$account"] | Select-Object -ExpandProperty name
     }
     catch {
@@ -285,6 +300,7 @@ foreach ($account in $gAccounts.Keys) {
 
     # Get Clouds
     try {
+        Write-Verbose "$account : Retrieving clouds..."
         $clouds = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])/api/clouds?account_href=/api/accounts/$account" -Headers $headers -Method GET -WebSession $webSessions["$account"]
     } 
     catch {
@@ -296,11 +312,11 @@ foreach ($account in $gAccounts.Keys) {
         (($clouds.display_name -like "Azure*").count -gt 0) -or
         (($clouds.display_name -like "Google*").count -gt 0)){
         # Account has AWS, Azure, or Google connected, get the Account ID
-        Write-Verbose "$account : AWS, Azure, or Google Clouds Connected - Retrieving Account IDs..."
         $originalAPIVersion = $webSessions["$account"].Headers["X_API_VERSION"]
         $webSessions["$account"].Headers.Remove("X_API_VERSION") | Out-Null
         
         try {
+            Write-Verbose "$account : AWS, Azure, or Google Clouds Connected - Retrieving Account IDs..."
             $cloudAccounts = Invoke-RestMethod -Uri "https://$($gAccounts["$account"]['endpoint'])/api/cloud_accounts" -Headers @{"X-Api-Version"="1.6";"X-Account"=$account} -Method GET -WebSession $webSessions["$account"]
         }
         catch {
@@ -326,6 +342,7 @@ foreach ($account in $gAccounts.Keys) {
         
         # Get instances within the respective cloud. Use extended view so we get an instance_type href.
         try {
+            Write-Verbose "$account : $cloudName : Retrieving instances..."
             $instances = Invoke-RestMethod -Uri https://$($gAccounts["$account"]['endpoint'])$cloudHref/instances?view=extended -Headers $headers -Method GET -WebSession $webSessions["$account"]
         } 
         catch {
@@ -338,34 +355,102 @@ foreach ($account in $gAccounts.Keys) {
             CONTINUE
         } 
         else {
-            Write-Verbose "$account : $cloudName : Getting instances..."
+            # Get Instance Types including Deleted
+            try {
+                Write-Verbose "$account : $cloudName : Retrieving instance type information..."
+                $instanceTypes = Invoke-RestMethod -Uri https://$($gAccounts["$account"]['endpoint'])$cloudHref/instance_types?with_deleted=true -Headers $headers -Method GET -WebSession $webSessions["$account"]
+                $instanceTypes = $instanceTypes | Select-Object name, resource_uid, description, memory, cpu_architecture, cpu_count, cpu_speed, @{Name="href";Expression={$_.links | Where-Object { $_.rel -eq "self" } | Select-Object -ExpandProperty href}}
+                Write-Verbose "$account : $cloudName : Number of Instance Types = $($instanceTypes.count)"
+            } 
+            catch {
+                Write-Warning "$account : $cloudName : Unable to retrieve instance types! StatusCode: $($_.Exception.Response.StatusCode.value__)"
+                CONTINUE
+            }
 
             # Get instance tags for each instance
             foreach ($instance in $instances) {
                 Write-Verbose "$account : $cloudName : $($instance.name)"
+                
+                # Check for ARM Managed Disks
+                if(($cloudName -like "AzureRM*") -and ($instance.cloud_specific_attributes.root_volume_type_uid)) {
+                    $armManagedDisks = $true
+                    Write-Verbose "$account : $cloudName : $($instance.name) : ARM Managed Disks = $armManagedDisks"
+                }
+                elseif($cloudName -like "AzureRM*") {
+                    $armManagedDisks = $false
+                    Write-Verbose "$account : $cloudName : $($instance.name) : ARM Managed Disks = $armManagedDisks"
+                }
+                else {
+                    $armManagedDisks = "N/A"
+                }
+                
                 $instanceHref = $instance.links | Where-Object { $_.rel -eq "self" } | Select-Object -ExpandProperty "href"
                 try {
+                    Write-Verbose "$account : $cloudName : $($instance.name) : Retrieving tags..."
                     $taginfo = Invoke-RestMethod -Uri https://$($gAccounts["$account"]['endpoint'])/api/tags/by_resource -Headers $headers -Method POST -WebSession $webSessions["$account"] -ContentType application/x-www-form-urlencoded -Body "email=$($RSCredential.UserName)&password=$($RSCredential.GetNetworkCredential().Password)&account_href=/api/accounts/$account&resource_hrefs[]=$instanceHref"
+                    Write-Verbose "$account : $cloudName : $($instance.name) : Number of Tags = $($taginfo.tags.name.count)"
                 } 
                 catch {
-                    Write-Warning "$account : $cloudName : $($instance.name) : Unable to pull tag information. StatusCode: $($_.Exception.Response.StatusCode.value__)"
+                    Write-Warning "$account : $cloudName : $($instance.name) : Unable to retrieve tag information. StatusCode: $($_.Exception.Response.StatusCode.value__)"
+                }
+
+                if($ReportAttachedDisks) {
+                    # Get the number of attached disks
+                    $numberOfAttachedDisks = 0
+                    try {
+                        Write-Verbose "$account : $cloudName : $($instance.name) : Retrieving volume attachment information..."
+                        $instanceVolumeAttachments = Invoke-RestMethod -Uri https://$($gAccounts["$account"]['endpoint'])$instanceHref/volume_attachments -Headers $headers -Method GET -WebSession $webSessions["$account"]
+                        Write-Warning "$account : $cloudName : $($instance.name) : Total Volumes Attached = $($instanceVolumeAttachments.count)"
+                    } 
+                    catch {
+                        if($_.Exception.Response.StatusCode.value__ -eq 422) {
+                            Write-Verbose "$account : $cloudName : $($instance.name) : No volumes attached"
+                        }
+                        else {
+                            Write-Warning "$account : $cloudName : $($instance.name) : Unable to retrieve volume attachment information. StatusCode: $($_.Exception.Response.StatusCode.value__)"
+                        }
+                        $instanceVolumeAttachments = $null
+                    }
+                    
+                    if($instanceVolumeAttachments) {
+                        #Some clouds show the osDisk as being attached -  we should not count this
+                        if($cloudName -like "AzureRM*") {
+                            $numberOfAttachedDisks = @($instanceVolumeAttachments | Where-Object {$_.device_id -ne 'osDisk'}).Count
+                        } elseif($cloudName -like "Google*") {
+                            $numberOfAttachedDisks = @($instanceVolumeAttachments | Where-Object {$_.device_id -ne 'persistent-disk-0'}).Count
+                        } elseif(($cloudName -like "AWS*") -or ($cloudName -like "EC2*")) {
+                            $numberOfAttachedDisks = @($instanceVolumeAttachments | Where-Object {$_.device_id -ne '/dev/sda1'}).Count
+                        } else {
+                            $numberOfAttachedDisks = @($instanceVolumeAttachments).Count
+                        }
+                        Write-Verbose "$account : $cloudName : $($instance.name) : Number of Attached Disks = $numberOfAttachedDisks"
+                    }
+                    else {
+                        $numberOfAttachedDisks = 0
+                    }
+                    
+                }
+                else {
+                    $numberOfAttachedDisks = "N/A"
                 }
 
                 $object = [pscustomobject]@{
-                    "Account_ID"        = $account;
-                    "Account_Name"      = $accountName;
-                    "Cloud_Account_ID"  = $($cloudAccountIds | Where-Object {$_.href -eq $cloudHref} | Select-Object -ExpandProperty tenant_uid);
-                    "Cloud"             = $cloudName;
-                    "Instance_Name"     = $instance.name;
-                    "Resource_UID"      = $instance.resource_uid;
-                    "Private_IPs"       = ($instance.private_ip_addresses -join " ");
-                    "Public_IPs"        = ($instance.public_ip_addresses -join " ");
-                    "State"             = $instance.state;
-                    "OS_Platform"       = $instance.os_platform;
-                    "Resource_Group"    = $instance.cloud_specific_attributes.resource_group;
-                    "Availability_Set"  = $instance.cloud_specific_attributes.availability_set;
-                    "Href"              = $instanceHref;
-                    "Tags"              = "`"$($taginfo.tags.name -join '","')`"";
+                    "Account_ID"                = $account;
+                    "Account_Name"              = $accountName;
+                    "Cloud_Account_ID"          = $($cloudAccountIds | Where-Object {$_.href -eq $cloudHref} | Select-Object -ExpandProperty tenant_uid);
+                    "Cloud"                     = $cloudName;
+                    "Instance_Name"             = $instance.name;
+                    "Resource_UID"              = $instance.resource_uid;
+                    "Private_IPs"               = ($instance.private_ip_addresses -join " ");
+                    "Public_IPs"                = ($instance.public_ip_addresses -join " ");
+                    "ARM_Managed_Disks"         = $armManagedDisks;
+                    "Number_of_Attached_Disks"  = $numberOfAttachedDisks;
+                    "State"                     = $instance.state;
+                    "OS_Platform"               = $instance.os_platform;
+                    "Resource_Group"            = $instance.cloud_specific_attributes.resource_group;
+                    "Availability_Set"          = $instance.cloud_specific_attributes.availability_set;
+                    "Href"                      = $instanceHref;
+                    "Tags"                      = "`"$($taginfo.tags.name -join '","')`"";
                 }
                 $instancesDetail += $object
             }
@@ -390,7 +475,7 @@ else {
 
 if(($DebugPreference -eq "SilentlyContinue") -or ($PSBoundParameters.ContainsKey('Debug'))) {
     ## Clear out any variables that were created
-    # Useful for testing in an IDE/ISE, shouldn't be neccesary for running the script normally
+    # Useful for testing in an IDE/ISE, shouldn't be necessary for running the script normally
     Write-Verbose "Clearing variables from memory..."
     Clean-Memory
 }

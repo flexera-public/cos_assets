@@ -472,7 +472,7 @@ else {
 
 if(($DebugPreference -eq "SilentlyContinue") -or ($PSBoundParameters.ContainsKey('Debug'))) {
     ## Clear out any variables that were created
-    # Useful for testing in an IDE/ISE, shouldn't be neccesary for running the script normally
+    # Useful for testing in an IDE/ISE, shouldn't be necesary for running the script normally
     Write-Verbose "Clearing variables from memory..."
     Clean-Memory
 }
