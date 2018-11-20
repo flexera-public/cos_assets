@@ -1,5 +1,7 @@
 # Azure Utilization Script
 
+# **Note:** Currently not working due to Microsoft Azure deprecating the API
+
 ## Overview
 The purpose of this script is to complete the following tasks.  They can be executed at the same time or separately (see **Usage** for more info):
 - Generate list of VMs that do not have the Diagnostics Extension installed
