@@ -4,14 +4,14 @@ This repository contains a library of open source RightScale Cost Optimization A
 ## Instance Utilization
 - [Azure Utilization Script](./Azure/) - **CURRENTLY BROKEN DUE TO DEPRECATED API** 
 - [AWS Utilization Script](./cw_cpu_avg/)
-- [RightScale Organization Utilization Data](./RightLink_Utilization/)
-- [VM Information Report](./RightLink_Utilization/)
+- [RightLink Utilization Data Script](./RightLink_Utilization/)
+- [VM Information Report Script](./RightLink_Utilization/)
 
 ## Volumes
-- [Unattached Volumes](./Unattached_Volumes/)
+- [Get Unattached Volumes Script](./Unattached_Volumes/)
 
 ## Snapshots
-- [Old Snapshots](./Old_Snapshots/)
+- [Get Snapshots Older Than A Date Specified](./Old_Snapshots/)
 
 ## Utility Scripts
 - [Run-COSStorageScripts.ps1](./Run-COSStorageScripts.ps1)
