@@ -1,8 +1,7 @@
 # Source: https://github.com/rs-services/cos_assets
 #
 # Version: 1.0
-#  Runs the unattached volumes and old snapshots scripts sequentially
-#  Expects that the Git folder structure was preserved
+#
 
 [CmdletBinding()]
 param(
