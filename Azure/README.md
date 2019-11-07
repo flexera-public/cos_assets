@@ -22,7 +22,7 @@ There are 2 main ways to execute the script: using in-line parameters & using a 
 
 ### Recommended Usage
 
-- If the customer has stated that they alread have the Diagnostics Extension installed on their VMs:
+- If the customer has stated that they already have the Diagnostics Extension installed on their VMs:
     1. Ask for the XML configs used to enable the Extensions and verify if the **Default Metrics** of this script are listed in their XML configs.
     1. If the **Default Metrics** are in their config, proceed to execute script with `-retrieveMetrics`
     1. If the **Default Metrics** are not in their config, identify which Metrics to gather, and proceed to execute script with `-retrieveMetrics -customMetricNames foo,bar`
@@ -49,9 +49,9 @@ The Parameters listed below have the same purpose, regardless of execution metho
 | createStorageAccount | no | If set to `$true` a new Storage Account will be created | In-Line | boolean | Default value = `$false` | 
 | resourceGroupName | no | Name of the Resource Group that will contain the Storage Account for Diagnostics Data | In-Line | string | If the Resource Group doesn't exist, one will be created with the name specified. If not specified AND if `createStorageAccount` set to `$true`, a Resource Group named `RSDiagnostics` will be created | 
 | location | no | Azure Region where the Resource Group will be created | In-Line | string | Required if the `resourceGroupName` value is not an existing Resource Group OR if the `resourceGroupName` values is not specified and `createStorageAccount` is set to `$true`.  Valid values: `eastasia`, `southeastasia`, `centralus`, `eastus`, `eastus2`, `westus`, `northcentralus`, `southcentralus`, `northeurope`, `westeurope`, `japanwest`, `japaneast`, `brazilsouth`, `australiaeast`, `australiasoutheast`, `southindia`, `centralindia`, `westindia`, `canadacentral`, `canadaeast`, `uksouth`, `ukwest`, `westcentralus`, `westus2`, `koreacentral`, `koreasouth` | 
-| checkForExtensions | no | If set, the portion of the script that discovers VMs without the Diagnostics Extension will executte | CSV & In-Line | switch | Can be used in conjunction with other switches |
-| installExtensions | no | If set, the portion of the script that installs the Diagnostics Extension on VMs will executte | CSV & In-Line | switch | Can be used in conjunction with other switches |
-| retrieveMetrics | no | If set, the portion of the script that retrieves Diagnostics data will executte | CSV & In-Line | switch | Can be used in conjunction with other switches, although that doesn't sound like a logical use case |
+| checkForExtensions | no | If set, the portion of the script that discovers VMs without the Diagnostics Extension will execute | CSV & In-Line | switch | Can be used in conjunction with other switches |
+| installExtensions | no | If set, the portion of the script that installs the Diagnostics Extension on VMs will execute | CSV & In-Line | switch | Can be used in conjunction with other switches |
+| retrieveMetrics | no | If set, the portion of the script that retrieves Diagnostics data will execute | CSV & In-Line | switch | Can be used in conjunction with other switches, although that doesn't sound like a logical use case |
 | numberOfDays | no | Identifies how many days to retrieve metrics for | CSV & In-Line | integer | Default value is `14`.  Only needed if `-retrieveMetrics` is set & need to gather metrics for a different timespan | 
 | customMetricNames | no | Array of additional Metric Names to be gathered (beyond default metrics) | CSV & In-Line | string[] | Only the average of the specified metrics will be retrieved | 
 
@@ -66,11 +66,11 @@ subscriptionId,resourceGroupName,storageAccountName,createStorageAccount,locatio
 asdfghjk-asdf-asdf-asdf-asdfghjklasd,,,$true,centralus
 qwertyui-qwer-qwer-qwer-qwertyuiopqw,Foobar123,,$true,northeurope
 ```
-- For the first subscription, neither a Resource Group nor Storage Account will be created.  The script assumes that `MyResourceGroup` and `sa12345foobar` already exist and does not attempt to create them.
+- For the first subscription, a Resource Group and Storage Account will not be created.  The script assumes that `MyResourceGroup` and `sa12345foobar` already exist and does not attempt to create them.
 - For the second subscription, since `createStorageAccount` is set to `$true` AND values are not specified for `resourceGroupName` or `storageAccountName`, the script will create a Resource Group named `RSDiagnostics` and a randomly named Storage Account.
 - For the last subscription, a randomly named Storage Account will be created, and will be placed in the `Foobar123` Resource Group.  If that Resource Group does not already exist, one will be created with that name.
 
-**Note:** it is not recommended to set `createStorageAccount` to `$true` AND supply a value for `storageAccountName`.  As Storage Account names must be globally unique, this could result in error.
+**Note:** It is not recommended to set `createStorageAccount` to `$true` AND supply a value for `storageAccountName`.  As Storage Account names must be globally unique, this could result in error.
 
 ### Execution Examples
 All examples below assume that the `AzureUtilization.ps1` script is in the working directory.
