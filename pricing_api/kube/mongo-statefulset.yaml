@@ -31,27 +31,26 @@ kind: StatefulSet
 metadata:
   name: mongo
 spec:
-  selector:
-    matchLabels:
-      role: mongo
-      environment: pricing
   serviceName: "mongo"
   replicas: 3
   template:
     metadata:
       labels:
         role: mongo
-        environment: pricing
+        environment: pricing-api
     spec:
       terminationGracePeriodSeconds: 10
       containers:
         - name: mongo
-          image: mongo
+          image: mongo:3.6
           command:
             - mongod
             - "--replSet"
             - rs0
+            - "--bind_ip"
+            - 0.0.0.0
             - "--smallfiles"
+            - "--noprealloc"
           ports:
             - containerPort: 27017
           volumeMounts:
@@ -61,7 +60,7 @@ spec:
           image: cvallance/mongo-k8s-sidecar
           env:
             - name: MONGO_SIDECAR_POD_LABELS
-              value: "role=mongo,environment=pricing"
+              value: "role=mongo,environment=pricing-api"
   volumeClaimTemplates:
   - metadata:
       name: mongo-persistent-storage
@@ -71,4 +70,4 @@ spec:
       accessModes: [ "ReadWriteOnce" ]
       resources:
         requests:
-          storage: 100Gi
+          storage: 10Gi
