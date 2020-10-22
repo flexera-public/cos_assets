@@ -13,9 +13,11 @@ spec:
       labels:
         app: pricing-api
     spec:
+      imagePullSecrets:
+        - name: regcred
       containers:
         - name: app
-          image: rshade/cloud-pricing-api
+          image: us.gcr.io/rightscale.com/services1/cloud-pricing-api:0.1
           ports:
             - containerPort: 4000
           env:
@@ -34,5 +36,5 @@ spec:
     app: pricing-api
   ports:
     - port: 80
-      targetPort: 3000
+      targetPort: 4000
   type: LoadBalancer

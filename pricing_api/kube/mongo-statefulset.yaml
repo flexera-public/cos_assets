@@ -31,13 +31,17 @@ kind: StatefulSet
 metadata:
   name: mongo
 spec:
+  selector:
+    matchLabels:
+      role: mongo
+      environment: pricing
   serviceName: "mongo"
   replicas: 3
   template:
     metadata:
       labels:
         role: mongo
-        environment: pricing-api
+        environment: pricing
     spec:
       terminationGracePeriodSeconds: 10
       containers:
@@ -60,7 +64,7 @@ spec:
           image: cvallance/mongo-k8s-sidecar
           env:
             - name: MONGO_SIDECAR_POD_LABELS
-              value: "role=mongo,environment=pricing-api"
+              value: "role=mongo,environment=pricing"
   volumeClaimTemplates:
   - metadata:
       name: mongo-persistent-storage
