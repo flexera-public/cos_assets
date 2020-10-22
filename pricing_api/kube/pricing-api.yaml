@@ -20,7 +20,9 @@ spec:
             - containerPort: 4000
           env:
             - name: MONGO_URL
-              value: mongodb://mongo:27017/dev
+              value: mongodb://mongo:27017/cloudPricing
+            - name: MONGO_URI
+              value: mongodb://mongo:27017/cloudPricing
           imagePullPolicy: Always
 ---
 apiVersion: v1

@@ -22,7 +22,6 @@ spec:
   - port: 27017
     targetPort: 27017
     nodePort: 30007
-  clusterIP: None
   selector:
     role: mongo
 ---
