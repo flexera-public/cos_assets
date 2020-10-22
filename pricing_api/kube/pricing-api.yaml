@@ -17,14 +17,14 @@ spec:
         - name: regcred
       containers:
         - name: app
-          image: us.gcr.io/rightscale.com/services1/cloud-pricing-api:0.1
+          image: us.gcr.io/rightscale.com/services1/cloud-pricing-api:0.2
           ports:
             - containerPort: 4000
           env:
             - name: MONGO_URL
-              value: mongodb://mongo-0.mongo,mongo-1.mongo,mongo-2.mongo:27017/cloudPricing
+              value: mongodb://mongo-0.mongo:27017,mongo-1.mongo:27017,mongo-2.mongo:27017/cloudPricing?replicaSet=rs0
             - name: MONGO_URI
-              value: mongodb://mongo-0.mongo,mongo-1.mongo,mongo-2.mongo:27017/cloudPricing
+              value: mongodb://mongo-0.mongo:27017,mongo-1.mongo:27017,mongo-2.mongo:27017/cloudPricing?replicaSet=rs0
           imagePullPolicy: Always
 ---
 apiVersion: v1
