@@ -1,0 +1,3 @@
+[submodule "pricing_api/cloud-pricing-api"]
+	path = pricing_api/cloud-pricing-api
+	url = git@github.com:infracost/cloud-pricing-api.git
