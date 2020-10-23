@@ -4,7 +4,7 @@ kind: Deployment
 metadata:
   name: pricing-api
 spec:
-  replicas: 3
+  replicas: 2
   selector:
     matchLabels:
       app: pricing-api
@@ -17,7 +17,7 @@ spec:
         - name: regcred
       containers:
         - name: app
-          image: us.gcr.io/rightscale.com/services1/cloud-pricing-api:0.4
+          image: us.gcr.io/rightscale.com/services1/cloud-pricing-api:latest
           ports:
             - containerPort: 4000
           imagePullPolicy: Always
