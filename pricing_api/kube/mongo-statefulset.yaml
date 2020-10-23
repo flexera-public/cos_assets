@@ -57,16 +57,16 @@ spec:
           ports:
             - containerPort: 27017
           volumeMounts:
-            - name: mongo-persistent-storage
+            - name: mongo-persistent-storage-1
               mountPath: /data/db
         - name: mongo-sidecar
-          image: cvallance/mongo-k8s-sidecar
+          image: us.gcr.io/rightscale.com/services1/mongo-k8s-sidecar:latest
           env:
             - name: MONGO_SIDECAR_POD_LABELS
               value: "role=mongo,environment=pricing"
   volumeClaimTemplates:
   - metadata:
-      name: mongo-persistent-storage
+      name: mongo-persistent-storage-1
       annotations:
         volume.beta.kubernetes.io/storage-class: "fast"
     spec:
