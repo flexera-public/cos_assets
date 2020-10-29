@@ -17,7 +17,7 @@ spec:
         - name: regcred
       containers:
         - name: app
-          image: us.gcr.io/rightscale.com/services1/cloud-pricing-api:latest
+          image: us.gcr.io/rightscale.com/services1/cloud-pricing-api:0.6
           ports:
             - containerPort: 4000
           imagePullPolicy: Always
